@@ -15,8 +15,6 @@ def torus(coords, distance):
 def build_coords(distance: int, dimension=2) -> np.array:
     """
     Find the locations of cells in a d-dim square lattice - will be used to build the toric codes
-    TODO create a class cell that keeps the information regarding the dimension in which the cell is embedded, it's
-    TODO coordinates, it's index and any other information we need.
     :param distance:
     :param dimension:
     :return:
@@ -101,7 +99,7 @@ def non_triv_loops(starter_coord, dims_to_explore, distance):
 def logical_x_toric(cells, q_cell_dim, dimension, distance, q2i_dict):
     # Logical X. This is a collection of m-cells, where m=qubit_cell_dim, that have no m+1 dim boundary, and are not the
     # boundary of a m-1 cell.
-    #TODO this currently only returns one of the logical operators, to get the others would need to pick other starting
+    # TODO this currently only returns one of the logical operators, to get the others would need to pick other starting
     # qubits that are embedded in the other dimensions
     # Pick a m-cell
     first_cell = cells[q_cell_dim][0]
@@ -110,14 +108,24 @@ def logical_x_toric(cells, q_cell_dim, dimension, distance, q2i_dict):
 
     x_logical_coords = non_triv_loops(first_cell, orthogonal, distance)
     x_logical_inds = [q2i_dict[q] for q in x_logical_coords]
-    x_logical_bin = np.zeros((len(cells[q_cell_dim]), 1))
+    x_logical_bin = np.zeros((len(cells[q_cell_dim]), 1), dtype=np.uint8)
     for x_ind in x_logical_inds:
         x_logical_bin[x_ind, 0] = 1
     return x_logical_bin
 
 
-def logical_z_toric(cells, q_cell_dim, dimension, distance, z2i_dict):
-    # This function gets the loical Z operator of the toric code and then propogates it in a loop
+def logical_z_toric(cells, q_cell_dim, dimension, distance, z2i_dict, correlation_surf=True):
+    """
+
+    :param cells:
+    :param q_cell_dim:
+    :param dimension:
+    :param distance:
+    :param z2i_dict:
+    :param correlation_surf: get the correlation surface instead of the circuit based logical operator
+    :return:
+    """
+    # This function gets the logical Z operator of the toric code and then propogates it in a loop
     # to get the dual correlation surface on the m+1 cells
 
     # Logical Z - these are chains of m-cells with no m-1 boundary
@@ -129,14 +137,17 @@ def logical_z_toric(cells, q_cell_dim, dimension, distance, z2i_dict):
     # get the direction to move in
     embedded = [i for i in range(dimension) if current_cells[0][i] % 2]
     z_logical_coords = non_triv_loops(first_cell, embedded, distance)
-    # Now propogate in an orthogonal direction until you get back to where you started
-    propogate_dir = orthogonal[0]
-    new_qubits = []
-    for q in z_logical_coords:
-        q2 = list(q)
-        q2[propogate_dir] += 1
-        new_qubits.append(torus(q2, distance))
-    z_correlation_surface = non_triv_loops(new_qubits, [orthogonal[0]], distance)
+    if correlation_surf:
+        # Now propogate in an orthogonal direction until you get back to where you started
+        propogate_dir = orthogonal[0]
+        new_qubits = []
+        for q in z_logical_coords:
+            q2 = list(q)
+            q2[propogate_dir] += 1
+            new_qubits.append(torus(q2, distance))
+        z_correlation_surface = non_triv_loops(new_qubits, [orthogonal[0]], distance)
+    else:
+        z_correlation_surface = z_logical_coords
     z_inds = [z2i_dict[q] for q in z_correlation_surface]
     z_logical_bin = np.zeros((len(cells[q_cell_dim + 1]), 1))
     for z_ind in z_inds:
@@ -224,10 +235,9 @@ def plot_RHG_threshold():
     plt.show()
 
 
-
 def main():
     pass
 
 
 if __name__ == '__main__':
-    main()
+    plot_RHG_threshold()
