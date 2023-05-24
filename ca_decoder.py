@@ -8,7 +8,7 @@ from time import time
 from toric import cell_dicts_and_boundary_maps, adjacent_cells, torus, logical_x_toric, logical_z_toric
 from scipy.sparse import csr_matrix, csc_matrix
 from matplotlib.colors import ListedColormap
-import imageio
+# import imageio
 from linear_algebra_inZ2 import loss_decoding_gausselim_fast_trackqbts, loss_decoding_gausselim_fast_noordering_trackqbts
 from itertools import repeat
 from helpers import save_obj
@@ -284,12 +284,16 @@ def tooms_with_loss_parallelized(distance, dimension=5, loss_rate=0.1, error_rat
             tot_errors += n_errors
             tot_losses += n_losses
     print(f'total time taken: {time() - t0}')
-    return tot_errors/n_shots, tot_losses/n_shots
+    return tot_losses/n_shots, tot_errors/n_shots
 
 
 def run_tooms_and_ge_on_batch(error_mat, loss_mat, h, ne_map, n_ca_iters, chng_freq, lost_q_ixs, log_op, qub_synd_mat,
-                              lossy=True, errory=True):
+                              lossy=True, errory=True, printing=False):
     num_in_batch = error_mat.shape[1]
+    if printing:
+        print(f'{num_in_batch=}')
+        print(f'{errory=}')
+        print(f'{lossy=}')
     if errory:
         current_error = sparse_tooms_iters(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat)
     else:
@@ -300,7 +304,6 @@ def run_tooms_and_ge_on_batch(error_mat, loss_mat, h, ne_map, n_ca_iters, chng_f
         n_errors, n_log_losses = loss_decode_check_error(lost_q_ixs, h_with_log_op, qub_synd_mat, error_rate=int(errory),
                                                          error_mat=current_error, batch_size=num_in_batch)
 
-        pass
     else:
         res_errors = log_op.multiply(current_error)
         n_errs_in_support = np.array(np.sum(res_errors, axis=0))
@@ -413,7 +416,7 @@ def tooms_with_loss(distance, dimension=5, loss_rate=0.1, error_rate=0., n_ca_it
 
         if parallelise:
             if n_processes is None:
-                n_processes = multiprocessing.cpu_count() - 1
+                n_processes = multiprocessing.cpu_count()
             log_error_rate, log_loss_rate = parallelised_gauss_elim_batched(h_with_log_op, lost_qubit_ixs,
                                                                     qbt_syndr_mat, n_shots,
                                                                     current_error,
@@ -732,31 +735,31 @@ def visualise_q_and_stab(losses, errors, h, distance, i2qcoord, i2stabcoord, ite
         plt.show()
         plt.close()
 
-
-def gen_gif_tooms_2d_loss(distance=20, error_rate=0.4, loss_rate=0.1, n_ca_iters=100, change_dir_every=10):
-    dirname = f'Tooms2Ddistance{distance}_error{error_rate}_loss{loss_rate}_{n_ca_iters}iters_chngdir{change_dir_every}'
-    path = os.getcwd() + f'/outputs/{dirname}'
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-    tooms_with_loss(distance=distance, error_rate=error_rate, loss_rate=loss_rate, n_ca_iters=n_ca_iters, change_dir_every=change_dir_every, save_dir=path, save_figs=True, plot_fig=True)
-
-    frames = []
-
-    steps_list = []
-    n_imgs = 0
-    for file in os.listdir(path):
-        if file.endswith(".png"):
-            n_imgs += 1
-
-    for step_ix in range(n_imgs):
-        image = imageio.v2.imread(os.path.join(path, f'{step_ix}.png'))
-        frames.append(image)
-
-    imageio.mimsave(os.path.join(path, './ToomsWithLoss.gif'),
-                    frames,
-                    fps=5,
-                    loop=1)
+# TODO undo this
+# def gen_gif_tooms_2d_loss(distance=20, error_rate=0.4, loss_rate=0.1, n_ca_iters=100, change_dir_every=10):
+#     dirname = f'Tooms2Ddistance{distance}_error{error_rate}_loss{loss_rate}_{n_ca_iters}iters_chngdir{change_dir_every}'
+#     path = os.getcwd() + f'/outputs/{dirname}'
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+#
+#     tooms_with_loss(distance=distance, error_rate=error_rate, loss_rate=loss_rate, n_ca_iters=n_ca_iters, change_dir_every=change_dir_every, save_dir=path, save_figs=True, plot_fig=True)
+#
+#     frames = []
+#
+#     steps_list = []
+#     n_imgs = 0
+#     for file in os.listdir(path):
+#         if file.endswith(".png"):
+#             n_imgs += 1
+#
+#     for step_ix in range(n_imgs):
+#         image = imageio.v2.imread(os.path.join(path, f'{step_ix}.png'))
+#         frames.append(image)
+#
+#     imageio.mimsave(os.path.join(path, './ToomsWithLoss.gif'),
+#                     frames,
+#                     fps=5,
+#                     loop=1)
 
 
 def test_north_stab_sweep(dimension=3, distance=5):
@@ -854,7 +857,7 @@ def loss_threshold():
     print(f'{n_shots=}')
 
 
-def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5):
+def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5, showfig=False):
     # error_rates = np.linspace(0.01, 0.02, 7)
     # Ls = [3, 5]
     # Ls = [3]
@@ -874,33 +877,41 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             print(f'Calculating distance {L}, loss rate: {l}')
             for e in error_rates:
                 print(f'error rate: {e}')
-                log_loss_rate, log_error_rate = tooms_with_loss(dimension=dim, distance=L, error_rate=e, qubit_cell_dim=2,
-                                                                loss_rate=l, n_ca_iters=100, change_dir_every=20,
-                                                                plot_fig=False, dense=False, n_shots=n_shots, printing=True,
-                                                                parallelise=L>3, new_gauss_elim=True,
-                                                                n_processes=5)
+                if L <= 3:
+                    log_loss_rate, log_error_rate = tooms_with_loss(dimension=dim, distance=L, error_rate=e, qubit_cell_dim=2,
+                                                                    loss_rate=l, n_ca_iters=100, change_dir_every=20,
+                                                                    plot_fig=False, dense=False, n_shots=n_shots, printing=True,
+                                                                    parallelise=L>3, new_gauss_elim=True)
+                else:
+                    log_loss_rate, log_error_rate = tooms_with_loss_parallelized(dimension=dim, distance=L, error_rate=e, loss_rate=l, n_ca_iters=100,
+                                                                                 change_dir_every=20, n_shots=n_shots,
+                                                                                 qubit_cell_dim=2, parallelise=True)
+                    print(log_loss_rate, log_error_rate)
                 out.append(log_error_rate)
                 # print(f'{log_loss_rate=}, {log_error_rate=}')
             out_dict[L] = (error_rates, out)
-        if savefig:
+        if savefig or showfig:
             for L in Ls:
                 plt.plot(out_dict[L][0], out_dict[L][1])
             plt.legend(Ls)
             plt.xlabel('Phenom. noise')
             plt.ylabel('Logical error rate')
             plt.title(f'loss rate: {l}, dimension {dim} clusterized toric code')
-            plt.savefig(path + '/' + fnames + '.png')
+            if savefig:
+                plt.savefig(path + '/' + fnames + '.png')
+            if showfig:
+                plt.show()
         if save_data:
             save_obj(out_dict, fnames, path)
 
 
 
 if __name__ == '__main__':
-    for e in [0.00]:
-        # tooms_with_loss(distance=3, dimension=5, loss_rate=0.001, error_rate=e, n_ca_iters=100, change_dir_every=20, n_shots=1000, qubit_cell_dim=2, parallelise=False, new_gauss_elim=True, printing=True, plot_fig=False, dense=False)
-        print(tooms_with_loss_parallelized(4, 5, error_rate=e, loss_rate=0.01, n_ca_iters=100, change_dir_every=20, n_shots=10000, qubit_cell_dim=2, parallelise=True))
-    exit()
-    lossy_tooms_sweeps([3, 4], error_rates=np.linspace(0.001, 0.01, 5), loss=[0.001], n_shots=1000, savefig=True, outdir='test_sweep_2')
+    # for e in [0.00]:
+    #     # tooms_with_loss(distance=3, dimension=5, loss_rate=0.001, error_rate=e, n_ca_iters=100, change_dir_every=20, n_shots=1000, qubit_cell_dim=2, parallelise=False, new_gauss_elim=True, printing=True, plot_fig=False, dense=False)
+    #     print(tooms_with_loss_parallelized(4, 5, error_rate=e, loss_rate=0.01, n_ca_iters=100, change_dir_every=20, n_shots=10000, qubit_cell_dim=2, parallelise=True))
+    # exit()
+    lossy_tooms_sweeps([3, 4], error_rates=np.linspace(0.001, 0.011, 7), loss=[0.005], n_shots=10000, savefig=True, showfig=True, outdir='test_sweep_2')
 
 
 
