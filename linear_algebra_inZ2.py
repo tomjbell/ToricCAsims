@@ -22,7 +22,7 @@ if os_system == 'Windows':
     print('Loaded C++ linear algebra functions for Windows OS')
 elif os_system == 'Linux':
     try:
-        LTcpp_header = ctypes.cdll.LoadLibrary('./libLossDec.so')
+        LTcpp_header = ctypes.cdll.LoadLibrary('./libGaussElim.so')
     except:
         LTcpp_header = ctypes.cdll.LoadLibrary(os.path.join(cwd, 'FusionLatticesAnalysis', 'libLossDec.so'))
     print('Loaded C++ linear algebra functions for Linux OS')
