@@ -857,7 +857,22 @@ def loss_threshold():
     print(f'{n_shots=}')
 
 
-def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5, showfig=False):
+def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5, showfig=False, printing=False, test=False):
+    """
+
+    :param Ls:
+    :param error_rates:
+    :param n_shots:
+    :param loss:
+    :param save_data:
+    :param savefig:
+    :param outdir:
+    :param dim:
+    :param showfig:
+    :param printing:
+    :param test: Run small test job, do not parallelise
+    :return:
+    """
     # error_rates = np.linspace(0.01, 0.02, 7)
     # Ls = [3, 5]
     # Ls = [3]
@@ -875,12 +890,13 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
         for L in Ls:
             out = []
             print(f'Calculating distance {L}, loss rate: {l}')
+            t0 = time()
             for e in error_rates:
                 print(f'error rate: {e}')
-                if L <= 3:
+                if test:
                     log_loss_rate, log_error_rate = tooms_with_loss(dimension=dim, distance=L, error_rate=e, qubit_cell_dim=2,
                                                                     loss_rate=l, n_ca_iters=100, change_dir_every=20,
-                                                                    plot_fig=False, dense=False, n_shots=n_shots, printing=True,
+                                                                    plot_fig=False, dense=False, n_shots=n_shots, printing=printing,
                                                                     parallelise=L>3, new_gauss_elim=True)
                 else:
                     log_loss_rate, log_error_rate = tooms_with_loss_parallelized(dimension=dim, distance=L, error_rate=e, loss_rate=l, n_ca_iters=100,
@@ -890,6 +906,8 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
                 out.append(log_error_rate)
                 # print(f'{log_loss_rate=}, {log_error_rate=}')
             out_dict[L] = (error_rates, out)
+            print(f'Time taken: {time() - t0}')
+
         if savefig or showfig:
             for L in Ls:
                 plt.plot(out_dict[L][0], out_dict[L][1])
@@ -898,11 +916,22 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             plt.ylabel('Logical error rate')
             plt.title(f'loss rate: {l}, dimension {dim} clusterized toric code')
             if savefig:
-                plt.savefig(path + '/' + fnames + '.png')
+                new_filepath = path + '/' + fnames + '.png'
+                append = 1
+                while os.path.isfile(new_filepath):
+                    new_filepath = path + '/' + fnames + str(append) + '.png'
+                    append += 1
+                plt.savefig(new_filepath)
+                plt.close()
             if showfig:
                 plt.show()
         if save_data:
-            save_obj(out_dict, fnames, path)
+            new_filepath = path + '/' + fnames + '.pkl'
+            append = 1
+            while os.path.isfile(new_filepath):
+                new_filepath = path + '/' + fnames + str(append) + '.pkl'
+                append += 1
+            save_obj(out_dict, fnames + str(append), path)
 
 
 
@@ -911,7 +940,7 @@ if __name__ == '__main__':
     #     # tooms_with_loss(distance=3, dimension=5, loss_rate=0.001, error_rate=e, n_ca_iters=100, change_dir_every=20, n_shots=1000, qubit_cell_dim=2, parallelise=False, new_gauss_elim=True, printing=True, plot_fig=False, dense=False)
     #     print(tooms_with_loss_parallelized(4, 5, error_rate=e, loss_rate=0.01, n_ca_iters=100, change_dir_every=20, n_shots=10000, qubit_cell_dim=2, parallelise=True))
     # exit()
-    lossy_tooms_sweeps([3, 4], error_rates=np.linspace(0.001, 0.011, 7), loss=[0.005], n_shots=10000, savefig=True, showfig=True, outdir='test_sweep_2')
+    lossy_tooms_sweeps([3, 4], error_rates=np.linspace(0.001, 0.011, 7), loss=[0.002], n_shots=10000, savefig=True, showfig=True, outdir='test_sweep_2')
 
 
 

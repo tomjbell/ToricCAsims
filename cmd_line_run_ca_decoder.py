@@ -1,7 +1,7 @@
 import argparse
 import sys
-from multiprocessing import Pool, cpu_count
-from ca_decoder import lossy_tooms_sweeps, tooms_with_loss_parallelized
+from ca_decoder import lossy_tooms_sweeps
+import numpy as np
 
 
 if __name__ == '__main__':
@@ -41,12 +41,12 @@ if __name__ == '__main__':
     parser.add_argument(
         "-sf",
         "--savefig",
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "-sd",
         "--savedata",
-        action=argparse.BooleanOptionalAction
+        action=argparse.BooleanOptionalAction,
     )
     parser.add_argument(
         "-ns",
@@ -54,6 +54,18 @@ if __name__ == '__main__':
         help="description of variable",
         type=int,
         default=100,
+    )
+    parser.add_argument(
+        "-fa",
+        "--from_array",
+        action=argparse.BooleanOptionalAction,
+    )
+    parser.add_argument(
+        "-ar",
+        "--arix",
+        help="description of variable",
+        type=int,
+        default=0,
     )
 
     arguments = parser.parse_args(sys.argv[1:])
@@ -64,8 +76,13 @@ if __name__ == '__main__':
     savefig = arguments.savefig
     savedata = arguments.savedata
     n_shots = arguments.n_shots
+    arix = arguments.arix
+    from_array = arguments.from_array
 
-    # a = tooms_with_loss_parallelized(Ls, error_rate=error_rates, loss_rate=loss_rates, n_shots=n_shots, savefig=savefig, output_dir=output_dir)
+
+    if from_array:
+        loss_values = np.linspace(0.001, 0.015, 13)
+        loss_rates = loss_values[arix]
+
     lossy_tooms_sweeps(Ls, error_rates=error_rates, loss=loss_rates, n_shots=n_shots, savefig=savefig, outdir=output_dir, save_data=savedata)
 
-    print()
