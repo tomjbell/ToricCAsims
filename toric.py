@@ -50,7 +50,7 @@ def adjacent_cells(dim_shift, cell_coords, dimension, distance):
     return neighbours
 
 
-def cell_dicts_and_boundary_maps(distance, dimension):
+def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False):
     cells = build_coords(distance, dimension=dimension)
 
     # Index all cells
@@ -59,15 +59,38 @@ def cell_dicts_and_boundary_maps(distance, dimension):
     # get all boundary maps
     b_maps = [{} for _ in range(dimension + 1)]
     co_b_maps = [{} for _ in range(dimension + 1)]
+    if get_matrices:
+        b_map_mats = [0] * (dimension + 1)
+        cob_map_mats = [0] * (dimension + 1)
     for d in range(dimension + 1):
         if d > 0:
+            if get_matrices:
+                boundary_shape = (len(cells[d-1]), len(cells[d]))
+                b_mat = np.zeros(boundary_shape, dtype='int')
             for c in cells[d]:
                 boundary = adjacent_cells(dim_shift=-1, cell_coords=c, dimension=dimension, distance=distance)
-                b_maps[d][cells2i[d][c]] = [cells2i[d - 1][b] for b in boundary]
-        if d < dimension + 1:
+                this_dim_cell_ix = cells2i[d][c]
+                lower_dim_cell_ixs = [cells2i[d - 1][b] for b in boundary]
+                b_maps[d][this_dim_cell_ix] = lower_dim_cell_ixs
+                if get_matrices:
+                    b_mat[lower_dim_cell_ixs, this_dim_cell_ix] = 1
+            if get_matrices:
+                b_map_mats[d] = b_mat
+        if d < dimension:
+            if get_matrices:
+                boundary_shape = (len(cells[d + 1]), len(cells[d]))
+                cob_mat = np.zeros(boundary_shape, dtype='int')
             for c in cells[d]:
                 co_boundary = adjacent_cells(dim_shift=+1, cell_coords=c, dimension=dimension, distance=distance)
-                co_b_maps[d][cells2i[d][c]] = [cells2i[d + 1][b] for b in co_boundary]
+                this_dim_cell_ix = cells2i[d][c]
+                higher_dim_cell_ixs = [cells2i[d + 1][b] for b in co_boundary]
+                co_b_maps[d][this_dim_cell_ix] = higher_dim_cell_ixs
+                if get_matrices:
+                    cob_mat[higher_dim_cell_ixs, this_dim_cell_ix] = 1
+            if get_matrices:
+                cob_map_mats[d] = cob_mat
+    if get_matrices:
+        return cells, cells2i, b_maps, co_b_maps, b_map_mats, cob_map_mats
     return cells, cells2i, b_maps, co_b_maps
 
 
@@ -116,7 +139,6 @@ def logical_x_toric(cells, q_cell_dim, dimension, distance, q2i_dict):
 
 def logical_z_toric(cells, q_cell_dim, dimension, distance, z2i_dict, correlation_surf=True):
     """
-
     :param cells:
     :param q_cell_dim:
     :param dimension:
@@ -226,7 +248,7 @@ def sweep_error_prob(distance, dimension=3):
 
 def plot_RHG_threshold():
     legend = []
-    for distance in (3, 5, 7, 9, 11):
+    for distance in (3, 5, 7):
         legend.append(distance)
         print(f'{distance=}')
         sweep_error_prob(distance, dimension=3)
@@ -241,3 +263,4 @@ def main():
 
 if __name__ == '__main__':
     plot_RHG_threshold()
+    pass
