@@ -717,8 +717,6 @@ def dim3_loss_tests():
     # dists = [11]
 
     for d in dists:
-        h_sparse, correlation_surface, qbt_syndr_mat, ne_parity_mats_sparse, nq = lattice_info
-        lattice_info = init_lattice
         losses_out = []
         for l in losses:
             print(f'Analysing distance {d}, physical loss rate: {l}')
