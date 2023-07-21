@@ -14,7 +14,8 @@ cwd = os.getcwd()
 
 os_system = platform.system()
 if os_system == 'Windows':
-    LTcpp_header = ctypes.cdll.LoadLibrary('./GaussElim.dll')
+    # LTcpp_header = ctypes.cdll.LoadLibrary('./GaussElim.dll')
+    LTcpp_header = ctypes.cdll.LoadLibrary('./GE_new_tb.dll')
     # try:
     #     LTcpp_header = ctypes.cdll.LoadLibrary('./libLossDec_win.dll')
     # except:
@@ -33,7 +34,8 @@ LTcpp_header.LossDecoder_GaussElimin.argtypes = [ctypes.POINTER(ctypes.c_bool), 
 LTcpp_header.LossDecoder_GaussElimin_print.argtypes = [ctypes.POINTER(ctypes.c_bool), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 LTcpp_header.LossDecoder_GaussElimin_trackqbts.argtypes = [ctypes.POINTER(ctypes.c_bool), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 LTcpp_header.LossDecoder_GaussElimin_noordered_trackqbts.argtypes = [ctypes.POINTER(ctypes.c_bool), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
-
+if os_system == 'Windows':
+    LTcpp_header.LossDecoder_GaussElimin_noordered_trackstabs.argtypes = [ctypes.POINTER(ctypes.c_bool), ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int), ctypes.c_int, ctypes.c_int, ctypes.c_int]
 
 
 def loss_decoding_gausselim_fast(m, num_lost_qbts, print = False):
@@ -75,6 +77,25 @@ def loss_decoding_gausselim_fast_trackqbts(m, qbt_syndr_mat, num_lost_qbts):
                                                    REF_qbt_syndr_mat.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
                                                    nr, nc, num_lost_qbts)
     return REF_m, REF_qbt_syndr_mat
+
+
+def loss_decoding_gausselim_fast_noordering_trackstabs(m, lost_qbts, n_stabs):
+    if m.dtype != np.uint8:
+        raise ValueError("The c++ function works only for binary matrices with numpy.uint8 datatype entries.")
+    if lost_qbts.dtype != int:
+        raise ValueError(f"The c++ function works only lost qubits with data type int, not {lost_qbts.dtype}")
+    nr, nc = m.shape
+
+    nlq = len(lost_qbts)
+    lost_q = lost_qbts.copy()
+
+    REF_m = m.copy()
+    stab_arr = np.array(range(n_stabs), dtype=int)
+    LTcpp_header.LossDecoder_GaussElimin_noordered_trackstabs(REF_m.ctypes.data_as(ctypes.POINTER(ctypes.c_bool)),
+                                                   stab_arr.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                                                   lost_q.ctypes.data_as(ctypes.POINTER(ctypes.c_int)),
+                                                   nr, nc, nlq)
+    return REF_m, stab_arr
 
 
 def loss_decoding_gausselim_fast_noordering_trackqbts(m, qbt_syndr_mat, lost_qbts):
