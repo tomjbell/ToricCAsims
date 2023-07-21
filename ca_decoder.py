@@ -3,7 +3,6 @@ import random
 import multiprocessing
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib
 from time import time
 from toric import cell_dicts_and_boundary_maps, adjacent_cells, torus, logical_x_toric, logical_z_toric
 from scipy.sparse import csr_matrix, csc_matrix
@@ -11,59 +10,25 @@ from matplotlib.colors import ListedColormap
 # import imageio
 from linear_algebra_inZ2 import loss_decoding_gausselim_fast_trackqbts, loss_decoding_gausselim_fast_noordering_trackqbts
 from itertools import repeat
-from helpers import save_obj
+from helpers import save_obj, batch_data, col_batch
 # matplotlib.use('module://backend_interagg')
-
-
-############################ These functions for simple ising model ########################
-
-def nec_coords(ixs, size):
-    north = (ixs[0] + 1) % size
-    east = (ixs[1] + 1) % size
-    return ixs, (north, ixs[1]), (ixs[0], east)
-
-
-def tooms_rule(mat, p=0.5, q=0.5):
-    new_mat = np.zeros(mat.shape)
-    shape = mat.shape
-    p_mat = np.random.choice([0, 1], size=mat.shape, p=[1-p, p])
-    q_mat = np.random.choice([0, 1], size=mat.shape, p=[1-q, q])
-    for i in range(shape[0]):
-        for j in range(shape[1]):
-            coords_set = nec_coords((i, j), mat.shape[0])
-            if sum([mat[x] for x in coords_set]) < 2:
-                val = 0
-            else:
-                val = 1
-            if val:
-                new_mat[i, j] = (val + p_mat[i, j]) % 2
-            else:
-                new_mat[i, j] = (val + q_mat[i, j]) % 2
-    return new_mat
-
-
-def run_tooms(size=50, p=0.1, q=0.1, length=10, show_every=1, initial_up=0.5):
-    cells_2d_mat = np.random.choice([0, 1], size=(size, size), p=[initial_up, 1 - initial_up])
-    print(np.sum(cells_2d_mat)/ size / size)
-    plt.matshow(cells_2d_mat)
-    plt.colorbar()
-    plt.clim(0, 1)
-    plt.show()
-    for _ in range(length):
-
-        cells_2d_mat = tooms_rule(cells_2d_mat, p=p, q=q)
-        if not (_ % 5):
-            plt.matshow(cells_2d_mat)
-            plt.title(_)
-            plt.colorbar()
-            plt.clim(0, 1)
-            plt.show()
-        # time.sleep(0.1)
 
 
 ##################################### These functions for error-correction #########################
 
 def ne_parity_map(cells, qubit_cell_dim, cells2i, dimension, distance, nq, n_stab, ne_dir=(1, 1)):
+    """
+    Get the matrices that map qubits to their north & east neighbours, in all possible directions (ne, nw, se, sw)
+    :param cells:
+    :param qubit_cell_dim:
+    :param cells2i:
+    :param dimension:
+    :param distance:
+    :param nq:
+    :param n_stab:
+    :param ne_dir:
+    :return:
+    """
     ne_map = {}
     for q in cells[qubit_cell_dim]:
         q_ind = cells2i[qubit_cell_dim][q]
@@ -196,20 +161,6 @@ def binary_error_to_mat_2d_tooms(error, ix2coord_map):
     return e_mat
 
 
-def get_tot_synd(loss_s, error_s):
-    row_ixs, col_ixs = loss_s.nonzero()
-
-    print(loss_s.nonzero())
-    m2 = error_s * (loss_s == 0)
-    return loss_s + m2
-
-
-def get_tot_synd_sparse(loss_s, error_s):
-    print(loss_s==0)
-    m2 = error_s * (loss_s == 0)
-    return loss_s + m2
-
-
 def ftr(nemap, st):
     m = nemap @ st
     return np.logical_or(m == 2, m == 4)
@@ -222,38 +173,28 @@ def ftr_sparse(nemap, st):
     return a + b
 
 
-def tooms_with_loss_parallelized(distance, dimension=5, loss_rate=0.1, error_rate=0., n_ca_iters=10, change_dir_every=10, n_shots=1,
-                        qubit_cell_dim=None, parallelise=True):
-    cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
-    if qubit_cell_dim is None:
-        qubit_cell_dim = 2
-    if qubit_cell_dim != dimension // 2:
-        print(f"Warning, qubit cell dimension is {qubit_cell_dim} for a {dimension}-dimensional toric code")
-    ne_dirs = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
-
-    nq = len(cells[qubit_cell_dim])
-    n_stab = len(cells[qubit_cell_dim - 1])
-    ne_maps = [ne_parity_map(cells, qubit_cell_dim, cells2i, dimension, distance, nq, n_stab, ne_dir=ne_dir) for ne_dir
-               in ne_dirs]
-    ne_parity_mats_sparse = [csr_matrix(ne_m) for ne_m in ne_maps]
-
-    h = np.zeros(shape=(n_stab, nq), dtype=np.uint8)
-    for stab, qubits in cob_maps[qubit_cell_dim - 1].items():
-        h[stab, qubits] = 1
-    h_sparse = csr_matrix(h)
-    stabs_per_qubit = len(b_maps[qubit_cell_dim][0])
-    qbt_syndr_mat = np.where(h.T)[1].reshape((nq, stabs_per_qubit)).astype(dtype=np.int32)  # is this the same as the boundary maps?
-    correlation_surface = csr_matrix(logical_x_toric(cells, qubit_cell_dim, dimension, distance, cells2i[qubit_cell_dim])) # Gets binary vector corresponding to the logical operator
-
-    errors_full = np.random.choice([0, 1, 2], size=(nq, n_shots),
-                                   p=[(1 - error_rate) * (1 - loss_rate), (1 - loss_rate) * error_rate, loss_rate])
-    es = errors_full == 1
-    ls = errors_full == 2
-    errors = np.array(es, dtype=int)
-    losses = np.array(ls, dtype=int)
+def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_ca_iters=10, change_dir_every=10, n_shots=1, parallelise=True, eras_convert=False, eras_conv_iters=0):
+    """
+    Run Tooms rule in the presence of losses on the lattice described by lattice_info
+    Options to do erasure conversion and direction changes
+    Parallelizes by batching the errors and running on different cores
+    :param lattice_info:
+    :param loss_rate:
+    :param error_rate:
+    :param n_ca_iters:
+    :param change_dir_every:
+    :param n_shots:
+    :param parallelise:
+    :param eras_convert:
+    :param eras_conv_iters:
+    :return:
+    """
+    h_sparse, correlation_surface, qbt_syndr_mat, ne_parity_mats_sparse, nq = lattice_info
+    errors, losses = gen_errors(nq, n_shots, error_rate, loss_rate)
     lost_qubit_ixs = [np.where(losses[:, ix])[0].astype(int) for ix in range(n_shots)]
 
     n_cpu = multiprocessing.cpu_count() - 1
+    # n_cpu = 1
     # batch the n_shots to run on different cores - this is the error and loss matrices
     errors_batched = col_batch(errors, n_cpu)
     losses_batched = col_batch(losses, n_cpu)
@@ -271,7 +212,7 @@ def tooms_with_loss_parallelized(distance, dimension=5, loss_rate=0.1, error_rat
         pool = multiprocessing.Pool(n_cpu)
         out = pool.starmap(run_tooms_and_ge_on_batch, zip(q_errs_sparse, q_loss_sparse, repeat(h_sparse), repeat(ne_parity_mats_sparse), repeat(n_ca_iters),
                                                           repeat(change_dir_every), lq_ix_batched, repeat(correlation_surface), repeat(qbt_syndr_mat),
-                                                          repeat(lossy), repeat(errory)))
+                                                          repeat(lossy), repeat(errory), repeat(eras_convert)))
         tot_errors = sum([x[0] for x in out])
         tot_losses = sum([x[1] for x in out])
     else:
@@ -280,7 +221,7 @@ def tooms_with_loss_parallelized(distance, dimension=5, loss_rate=0.1, error_rat
             loss_sparse = q_loss_sparse[i]
             n_errors, n_losses = run_tooms_and_ge_on_batch(error_sparse, loss_sparse, h_sparse, ne_parity_mats_sparse, n_ca_iters,
                                                            change_dir_every, lq_ix_batched[i], correlation_surface, qbt_syndr_mat,
-                                                           lossy=loss_rate > 1e-10, errory=error_rate > 1e-10)
+                                                           lossy=loss_rate > 1e-10, errory=error_rate > 1e-10, eras_convert=eras_convert)
             tot_errors += n_errors
             tot_losses += n_losses
     print(f'total time taken: {time() - t0}')
@@ -288,30 +229,57 @@ def tooms_with_loss_parallelized(distance, dimension=5, loss_rate=0.1, error_rat
 
 
 def run_tooms_and_ge_on_batch(error_mat, loss_mat, h, ne_map, n_ca_iters, chng_freq, lost_q_ixs, log_op, qub_synd_mat,
-                              lossy=True, errory=True, printing=False):
+                              lossy=True, errory=True, eras_convert=False):
+    """
+    Run Tooms rule and gaussian elimination on the error batch in error_mat
+    Options for erasure conversion and direction changes of the neighbours to compare against
+    :param error_mat:
+    :param loss_mat:
+    :param h:
+    :param ne_map:
+    :param n_ca_iters:
+    :param chng_freq:
+    :param lost_q_ixs:
+    :param log_op:
+    :param qub_synd_mat:
+    :param lossy:
+    :param errory:
+    :param eras_convert:
+    :return:
+    """
     num_in_batch = error_mat.shape[1]
-    if printing:
-        print(f'{num_in_batch=}')
-        print(f'{errory=}')
-        print(f'{lossy=}')
-    if errory:
-        current_error = sparse_tooms_iters(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat)
-    else:
-        current_error = error_mat
-    if lossy:
+
+    if eras_convert:
+        current_error, loss_mat = sparse_tooms_iters_eras_conv(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat, num_eras_iters=100)
+        losses = loss_mat.toarray()
+        shots_in_batch = losses.shape[1]
+        lost_q_ixs = [np.where(losses[:, ix])[0].astype(int) for ix in range(shots_in_batch)]
         current_error = current_error.toarray()
+        # print(f'resultant error fraction {np.sum(current_error)/current_error.shape[0]/current_error.shape[1]}')
+        # print(f'Number errors: {list(current_error.sum(axis=0))}')
         h_with_log_op = np.vstack([h.toarray(), log_op.toarray().T])
-        n_errors, n_log_losses = loss_decode_check_error(lost_q_ixs, h_with_log_op, qub_synd_mat, error_rate=int(errory),
+        n_errors, n_log_losses = loss_decode_check_error(lost_q_ixs, h_with_log_op, qub_synd_mat,
+                                                         error_rate=int(errory),
+                                                         error_mat=current_error, batch_size=num_in_batch)
+    else:
+        if errory:
+            current_error = sparse_tooms_iters(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat)
+        else:
+            current_error = error_mat
+        if lossy:
+            current_error = current_error.toarray()
+            # print(f'Number errors: {list(current_error.sum(axis=0))}')
+            h_with_log_op = np.vstack([h.toarray(), log_op.toarray().T])
+            n_errors, n_log_losses = loss_decode_check_error(lost_q_ixs, h_with_log_op, qub_synd_mat, error_rate=int(errory),
                                                          error_mat=current_error, batch_size=num_in_batch)
 
-    else:
-        res_errors = log_op.multiply(current_error)
-        n_errs_in_support = np.array(np.sum(res_errors, axis=0))
-        n_errs_in_support %= 2
-        n_errors = np.sum(np.array(n_errs_in_support))
-        n_log_losses = 0
+        else:
+            res_errors = log_op.multiply(current_error)
+            n_errs_in_support = np.array(np.sum(res_errors, axis=0))
+            n_errs_in_support %= 2
+            n_errors = np.sum(np.array(n_errs_in_support))
+            n_log_losses = 0
     return n_errors, n_log_losses
-
 
 
 def tooms_with_loss(distance, dimension=5, loss_rate=0.1, error_rate=0., n_ca_iters=10, change_dir_every=10, n_shots=1,
@@ -337,13 +305,7 @@ def tooms_with_loss(distance, dimension=5, loss_rate=0.1, error_rate=0., n_ca_it
     for stab, qubits in cob_maps[qubit_cell_dim - 1].items():
         h[stab, qubits] = 1
 
-    # Ensure no qubit can be lost and flipped
-    errors_full = np.random.choice([0, 1, 2], size=(nq, n_shots), p=[(1 - error_rate) * (1 - loss_rate), (1 - loss_rate) * error_rate, loss_rate])
-    es = errors_full == 1
-    ls = errors_full == 2
-    errors = np.array(es, dtype=int)
-    losses = np.array(ls, dtype=int)
-
+    errors, losses = gen_errors(nq, n_shots, error_rate, loss_rate)
 
     t0 = time()
     if error_rate > 1e-10:
@@ -472,6 +434,15 @@ def tooms_with_loss(distance, dimension=5, loss_rate=0.1, error_rate=0., n_ca_it
     return log_loss_rate, log_error_rate
 
 
+def gen_errors(nq, nshots, error_rate, loss_rate):
+    errors_full = np.random.choice([0, 1, 2], size=(nq, nshots), p=[(1 - error_rate) * (1 - loss_rate), (1 - loss_rate) * error_rate, loss_rate])
+    es = errors_full == 1
+    ls = errors_full == 2
+    errors = np.array(es, dtype=int)
+    losses = np.array(ls, dtype=int)
+    return errors, losses
+
+
 def sparse_tooms_iters(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_sparse, loss_sparse):
     ne_map = ne_mats[0]
     error_syndrome = h_sparse @ q_err_sparse
@@ -480,6 +451,47 @@ def sparse_tooms_iters(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_spar
     prediction = csr_matrix(q_err_sparse.shape, dtype=int)
     current_error = q_err_sparse.copy()
     ne_dir_ix = 0
+    for _ in range(num_iters):
+        if _ and (not _ % change_dir_freq):
+            ne_dir_ix += 1
+            ne_dir_ix %= 4
+            ne_map = ne_mats[ne_dir_ix]
+        # Taking off their product takes away 1 where they intersect
+        current_tot_synd = 3 * loss_synd_sparse + error_syndrome - loss_synd_sparse.multiply(error_syndrome)
+
+        flips_this_round = ftr_sparse(ne_map, current_tot_synd)
+        # print(flips_this_round)
+        prediction += flips_this_round
+        current_error += flips_this_round
+        # print(current_error)
+        current_error.data %= 2
+        error_syndrome = h_sparse @ current_error
+        error_syndrome.data %= 2
+    return current_error
+
+
+def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_sparse, loss_sparse, num_eras_iters):
+    """
+    perform Tooms iterations using sparse matrices.
+    This approach is likely to slow, particularly when doing erasure conversion near threshold, as losses are not sparse
+    :param num_iters:
+    :param change_dir_freq:
+    :param ne_mats:
+    :param q_err_sparse:
+    :param h_sparse:
+    :param loss_sparse:
+    :param num_eras_iters:
+    :return:
+    """
+    ne_map = ne_mats[0]
+    error_syndrome = h_sparse @ q_err_sparse
+    error_syndrome.data %= 2
+    loss_synd_sparse = (h_sparse @ loss_sparse) != 0
+    prediction = csr_matrix(q_err_sparse.shape, dtype=int)
+    current_error = q_err_sparse.copy()
+    # print(f'number of errors before tooms: {np.sum(current_error)}')
+    ne_dir_ix = 0
+    num_skips = 0
     for _ in range(num_iters):
         if _ and (not _ % change_dir_freq):
             ne_dir_ix += 1
@@ -497,12 +509,49 @@ def sparse_tooms_iters(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_spar
         current_error.data %= 2
         error_syndrome = h_sparse @ current_error
         error_syndrome.data %= 2
-    return current_error
+        if np.sum(flips_this_round) == 0:
+            ne_dir_ix += 1
+            ne_dir_ix %= 4
+            ne_map = ne_mats[ne_dir_ix]
+            num_skips += 1
+            if num_skips == 4:
+                print(f'4 skips, exiting pauli tooms after {_} iters')
+                break
+        else:
+            num_skips = 0
+    # print(f'number of errors after tooms: {np.sum(current_error)}')
+    num_skips = 0
+    for _ in range(num_eras_iters):
+        loss_synd_sparse = (h_sparse @ loss_sparse) != 0
+        error_syndrome = h_sparse @ current_error
+        error_syndrome.data %= 2
+        boundary = error_syndrome - loss_synd_sparse.multiply(error_syndrome)
+        assert(np.sum(boundary.multiply(loss_synd_sparse)) == 0)
+        have_boundary = ((ne_map @ (boundary + loss_synd_sparse)) == 2)
+        to_erase = have_boundary - have_boundary.multiply(loss_sparse)
+        num_erased = np.sum(to_erase)
+        # print(f'erased this round = {np.sum(to_erase)}')
+        loss_sparse += to_erase
+        # print(f'tot num losses = {np.sum(loss_sparse)}')
+        current_error = current_error - (current_error.multiply(loss_sparse))
+        # print(f'error qubits remaining: {np.sum(current_error)}')
+        if num_erased == 0:
+            if num_skips == 4:
+                print(f'4 skips, exiting erasure conversion after {_} iters')
+                break
+            num_skips += 1
+            ne_dir_ix += 1
+            ne_dir_ix %= 4
+            ne_map = ne_mats[ne_dir_ix]
+        else:
+            num_skips = 0
+    return current_error, loss_sparse
 
 
 def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rate, error_mat, batch_size=1):
     """
-
+    Determine how many logical losses and errors there are by performing gaussian elimination and finding the parity
+    of the intersection between the logical operator and the resultant error
     :param lost_qubits: list of lists
     :param h_with_log_op: numpy array
     :param qbt_syndr_mat:
@@ -529,41 +578,8 @@ def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rat
             # determine if there has been a logical error
             if not isinstance(error_vec, np.ndarray):
                 print(type(error_vec))
-
             log_error += np.dot(new_logop, error_vec) % 2
-
     return log_error, log_loss
-
-
-def batch_data(input_list, n_batches):
-    """
-    Split the input list in to n_batches lists of approximately equal size (the last item will contain a remainder
-    so is often smaller, but doesn't matter for multiprocessing purposes
-    :param input_list:
-    :param n_batches:
-    :return:
-    """
-    out_list = []
-    n_items = len(input_list)
-    n_per_batch = int(np.ceil(n_items / n_batches))
-    for ix in range(n_batches):
-        if (ix + 1) * n_per_batch < n_items:
-            ixs = input_list[ix * n_per_batch: (ix + 1) * n_per_batch]
-        else:
-            ixs = input_list[ix * n_per_batch:]
-        out_list.append(ixs)
-    return out_list
-
-
-def col_batch(input_arr, n_batches):
-    """
-    Split the array input_arr into n_batches different arrays by column
-    :param input_arr:
-    :param n_batches:
-    :return:
-    """
-    ix_lists = batch_data(list(range(input_arr.shape[1])), n_batches)
-    return [input_arr[:, j] for j in ix_lists]
 
 
 def parallelised_gauss_elim_batched(h_with_log_op, lost_qubit_ixs, qbt_syndr_mat, n_shots, error_mat, error_rate, n_batches):
@@ -608,91 +624,8 @@ def reorder_perm_mat(h, ordering):
     return (permutation_matrix @ h.transpose()).transpose()
 
 
-
 def reorder_qbt_synd_adj(mat, ordering):
     return mat[ordering]
-
-
-def ca_gauss_elim(distance, dimension=2, loss_rate=0.1, error_rate=0., n_ca_iters=10, n_shots=1, plot_fig=True, save_figs=False, save_dir=None, num_loss_ca_iters=0):
-    cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
-    qubit_cell_dim = 2
-    i2qcoord = {v: k for k, v in cells2i[qubit_cell_dim].items()}
-    i2stabcoord = {v: k for k, v in cells2i[qubit_cell_dim - 1].items()}
-    nq = len(cells[qubit_cell_dim])
-    n_stab = len(cells[qubit_cell_dim - 1])
-
-    errors_full = np.random.choice([0, 1, 2], size=(nq, n_shots),
-                                   p=[(1 - error_rate) * (1 - loss_rate), (1 - loss_rate) * error_rate, loss_rate])
-    es = errors_full == 1
-    ls = errors_full == 2
-    errors = np.array(es, dtype=int)
-    losses = np.array(ls, dtype=int)
-    loss_sparse = csr_matrix(losses)
-
-    logical_operator = logical_x_toric(cells, qubit_cell_dim, dimension, distance,
-                                          cells2i[2])  # Gets binary vector corresponding to the logical operator
-    # print(correlation_surface.shape)
-    if num_loss_ca_iters > 1:
-        logical_operator_tiled = np.tile(logical_operator, n_shots)
-        logical_operator_sparse = csr_matrix(logical_operator_tiled)
-    else:
-        logical_operator_sparse = csr_matrix(logical_operator)
-
-    # Find the first dimension that each qubit is embedded in, this is the direction that we will move the logical operator
-    # TODO construct this at the same time as the NE map?
-    qbts_to_change_in_support = qbts_to_change_support_loss(cells, qubit_cell_dim, cells2i, dimension, distance, nq,
-                                                            cob_maps)
-    qbt_support_mat_sparse = csr_matrix(qbts_to_change_in_support)
-
-    for _ in range(num_loss_ca_iters):
-        problem_q = logical_operator_sparse.multiply(
-            loss_sparse)  # this gives 1s where qubits in the support of the logical operator are lost
-        q_to_flip = qbt_support_mat_sparse @ problem_q
-        q_to_flip.data %= 2  # tells us which qubits to add or remove from the support of the logical operator
-        logical_operator_sparse += q_to_flip
-        logical_operator_sparse.data %= 2  # qubits can either be in or not in the moved correlation surface
-
-    # we should end up with n_shots different correlation surfaces that avoid losses
-
-    #
-    #
-    #
-    # if ca_losses:
-    #     if num_loss_ca_iters > 1:
-    #         correlation_surface_tiled = np.tile(correlation_surface, n_shots)
-    #         correlation_surface_sparse = csr_matrix(correlation_surface_tiled)
-    #     else:
-    #         correlation_surface_sparse = csr_matrix(correlation_surface)
-    #
-    #     # Find the first dimension that each qubit is embedded in, this is the direction that we will move the logical operator
-    #     # TODO construct this at the same time as the NE map?
-    #     qbts_to_change_in_support = qbts_to_change_support_loss(cells, qubit_cell_dim, cells2i, dimension, distance, nq, cob_maps)
-    #     qbt_support_mat_sparse = csr_matrix(qbts_to_change_in_support)
-    #
-    #     for _ in range(num_loss_ca_iters):
-    #         problem_q = correlation_surface_sparse.multiply(loss_sparse)  # this gives 1s where qubits in the support of the logical operator are lost
-    #         q_to_flip = qbt_support_mat_sparse @ problem_q
-    #         q_to_flip.data %= 2  # tells us which qubits to add or remove from the support of the logical operator
-    #         correlation_surface_sparse += q_to_flip
-    #         correlation_surface_sparse.data %= 2  # qubits can either be in or not in the moved correlation surface
-    #
-    #     # we should end up with n_shots different correlation surfaces that avoid losses
-
-
-def qbts_to_change_support_loss(cells, qubit_cell_dim, cells2i, dimension, distance, nq, co_boundary_map, i2qcoord=None):
-    qbts_to_change_in_support = np.zeros(shape=(nq, nq), dtype=np.uint8)
-    for q in cells[qubit_cell_dim]:
-        q_ind = cells2i[qubit_cell_dim][q]
-        embedded = tuple([i for i in range(dimension) if q[i] % 2])
-        increment_dir = embedded[0]
-        stab_coord = list(q)
-        stab_coord[increment_dir] += 1
-        stab_coord = torus(stab_coord, distance)
-        north_stab = cells2i[qubit_cell_dim - 1][stab_coord]
-        adj_qubit_ix = co_boundary_map[qubit_cell_dim - 1][north_stab]
-        qbts_to_change_in_support[adj_qubit_ix, q_ind] = 1
-        # print(q, stab_coord, [i2qcoord[nu_q] for nu_q in adj_qubit_ix])
-    return qbts_to_change_in_support
 
 
 def visualise_q_and_stab(losses, errors, h, distance, i2qcoord, i2stabcoord, iterno=None, savefig=False, dirname=None):
@@ -762,31 +695,6 @@ def visualise_q_and_stab(losses, errors, h, distance, i2qcoord, i2stabcoord, ite
 #                     loop=1)
 
 
-def test_north_stab_sweep(dimension=3, distance=5):
-    cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
-    qubit_cell_dim = 2
-    i2qcoord = {v: k for k, v in cells2i[qubit_cell_dim].items()}
-    i2stabcoord = {v: k for k, v in cells2i[qubit_cell_dim - 1].items()}
-    nq = len(cells[qubit_cell_dim])
-
-    qbts_to_change_in_support = qbts_to_change_support_loss(cells, qubit_cell_dim, cells2i, dimension, distance, nq, cob_maps, i2qcoord)
-
-    show_mat = np.zeros(shape=(nq, nq))
-
-    test_qbt = random.randint(0, nq)
-    test_vec = np.zeros((nq, 1))
-    test_vec[test_qbt, 0] = 1
-    chng_qbt = qbts_to_change_in_support @ test_vec
-    print(test_qbt)
-    print(chng_qbt.nonzero())
-    test_qbt_coords = i2qcoord[test_qbt]
-    chng_qbt_coords = [i2qcoord[x] for x in chng_qbt.nonzero()[0]]
-    print(f'{test_qbt_coords=}')
-    print(f'{chng_qbt_coords=}')
-
-
-
-
 def main():
     errors = np.linspace(0.016, 0.019, 6)
     for distance in [3, 4, 5]:
@@ -809,6 +717,8 @@ def dim3_loss_tests():
     # dists = [11]
 
     for d in dists:
+        h_sparse, correlation_surface, qbt_syndr_mat, ne_parity_mats_sparse, nq = lattice_info
+        lattice_info = init_lattice
         losses_out = []
         for l in losses:
             print(f'Analysing distance {d}, physical loss rate: {l}')
@@ -857,7 +767,9 @@ def loss_threshold():
     print(f'{n_shots=}')
 
 
-def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5, showfig=False, printing=False, test=False):
+def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5,
+                       n_ca_iters=100, showfig=False, printing=False, test=False, eras_convert=False, eras_conv_iters=0,
+                       fname_appendix='', qubit_cell_dim=2):
     """
 
     :param Ls:
@@ -871,6 +783,9 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
     :param showfig:
     :param printing:
     :param test: Run small test job, do not parallelise
+    :param fname_appendix append this string to filenames
+    :param eras_conv_iters how many erasure conversion iterations to perform
+    :param eras_convert Do erasure conversion?
     :return:
     """
     # error_rates = np.linspace(0.01, 0.02, 7)
@@ -885,32 +800,59 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             path = os.getcwd() + f'/outputs/{outdir}'
             if not os.path.exists(path):
                 os.makedirs(path)
-            fnames = f'dim5_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots'
+            fnames = f'dim5_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots{fname_appendix}'
         out_dict = {}
         for L in Ls:
+
+            # TODO construct maps first
+            cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=L, dimension=dim)
+            if qubit_cell_dim is None:
+                qubit_cell_dim = 2
+            if qubit_cell_dim != dim // 2:
+                print(f"Warning, qubit cell dimension is {qubit_cell_dim} for a {dim}-dimensional toric code")
+            ne_dirs = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
+
+            nq = len(cells[qubit_cell_dim])
+            n_stab = len(cells[qubit_cell_dim - 1])
+            ne_maps = [ne_parity_map(cells, qubit_cell_dim, cells2i, dim, L, nq, n_stab, ne_dir=ne_dir) for
+                       ne_dir
+                       in ne_dirs]
+            ne_parity_mats_sparse = [csr_matrix(ne_m) for ne_m in ne_maps]
+
+            h = np.zeros(shape=(n_stab, nq), dtype=np.uint8)
+            for stab, qubits in cob_maps[qubit_cell_dim - 1].items():
+                h[stab, qubits] = 1
+            h_sparse = csr_matrix(h)
+            stabs_per_qubit = len(b_maps[qubit_cell_dim][0])
+            qbt_syndr_mat = np.where(h.T)[1].reshape((nq, stabs_per_qubit)).astype(dtype=np.int32)  #  the same as the boundary maps
+            correlation_surface = csr_matrix(logical_x_toric(cells, qubit_cell_dim, dim, L, cells2i[qubit_cell_dim]))  # Gets binary vector corresponding to the logical operator
+            lattice_info = h_sparse, correlation_surface, qbt_syndr_mat, ne_parity_mats_sparse, nq
+
             out = []
             print(f'Calculating distance {L}, loss rate: {l}')
             t0 = time()
             for e in error_rates:
-                print(f'error rate: {e}')
+                if printing:
+                    print(f'error rate: {e}')
                 if test:
                     log_loss_rate, log_error_rate = tooms_with_loss(dimension=dim, distance=L, error_rate=e, qubit_cell_dim=2,
-                                                                    loss_rate=l, n_ca_iters=100, change_dir_every=20,
+                                                                    loss_rate=l, n_ca_iters=n_ca_iters, change_dir_every=20,
                                                                     plot_fig=False, dense=False, n_shots=n_shots, printing=printing,
                                                                     parallelise=L>3, new_gauss_elim=True)
                 else:
-                    log_loss_rate, log_error_rate = tooms_with_loss_parallelized(dimension=dim, distance=L, error_rate=e, loss_rate=l, n_ca_iters=100,
-                                                                                 change_dir_every=20, n_shots=n_shots,
-                                                                                 qubit_cell_dim=2, parallelise=True)
-                    print(log_loss_rate, log_error_rate)
-                out.append(log_error_rate)
+                    log_loss_rate, log_error_rate = tooms_with_loss_parallelized(lattice_info, error_rate=e, loss_rate=l, n_ca_iters=n_ca_iters,
+                                                                                 change_dir_every=20, n_shots=n_shots, parallelise=True, eras_convert=eras_convert, eras_conv_iters=eras_conv_iters)
+                    if printing:
+                        print(f'{log_loss_rate=}', f'{log_error_rate=}')
+                out.append((log_error_rate, log_loss_rate))
                 # print(f'{log_loss_rate=}, {log_error_rate=}')
             out_dict[L] = (error_rates, out)
-            print(f'Time taken: {time() - t0}')
+            if printing:
+                print(f'Time taken: {time() - t0}')
 
         if savefig or showfig:
             for L in Ls:
-                plt.plot(out_dict[L][0], out_dict[L][1])
+                plt.plot(out_dict[L][0], [val[0] for val in out_dict[L][1]], 'o-')
             plt.legend(Ls)
             plt.xlabel('Phenom. noise')
             plt.ylabel('Logical error rate')
@@ -925,6 +867,24 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
                 plt.close()
             if showfig:
                 plt.show()
+
+            # Plot logical loss rates
+            for L in Ls:
+                plt.plot(out_dict[L][0], [val[1] for val in out_dict[L][1]], 'o-')
+            plt.legend(Ls)
+            plt.xlabel('Phenom. noise')
+            plt.ylabel('Logical loss rate')
+            plt.title(f'loss rate: {l}, dimension {dim} clusterized toric code')
+            if savefig:
+                new_filepath = path + '/' + fnames + '.png'
+                append = 1
+                while os.path.isfile(new_filepath):
+                    new_filepath = path + '/' + fnames + str(append) + 'logloss.png'
+                    append += 1
+                plt.savefig(new_filepath)
+                plt.close()
+            if showfig:
+                plt.show()
         if save_data:
             new_filepath = path + '/' + fnames + '.pkl'
             append = 1
@@ -934,13 +894,15 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             save_obj(out_dict, fnames + str(append), path)
 
 
-
 if __name__ == '__main__':
+    # toom_2d_phase_only()
+    # exit()
     # for e in [0.00]:
     #     # tooms_with_loss(distance=3, dimension=5, loss_rate=0.001, error_rate=e, n_ca_iters=100, change_dir_every=20, n_shots=1000, qubit_cell_dim=2, parallelise=False, new_gauss_elim=True, printing=True, plot_fig=False, dense=False)
     #     print(tooms_with_loss_parallelized(4, 5, error_rate=e, loss_rate=0.01, n_ca_iters=100, change_dir_every=20, n_shots=10000, qubit_cell_dim=2, parallelise=True))
     # exit()
-    lossy_tooms_sweeps([3, 4], error_rates=np.linspace(0.001, 0.011, 7), loss=[0.002], n_shots=10000, savefig=True, showfig=True, outdir='test_sweep_2')
+
+    lossy_tooms_sweeps(dim=5, Ls=[3], error_rates=np.linspace(0.001, 0.011, 7), loss=[0.002], n_shots=10000, savefig=True, showfig=True, outdir='test_sweep_2')
 
 
 
