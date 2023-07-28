@@ -1,6 +1,6 @@
 import numpy as np
 from itertools import product, combinations
-from pymatching.matching import Matching
+# from pymatching.matching import Matching
 import matplotlib.pyplot as plt
 
 
@@ -12,7 +12,7 @@ def torus(coords, distance):
     return tuple(coords_out)
 
 
-def build_coords(distance: int, dimension=2) -> np.array:
+def build_coords(distance: int, dimension=2, periodic_bc=True) -> np.array:
     """
     Find the locations of cells in a d-dim square lattice - will be used to build the toric codes
     :param distance:
@@ -28,11 +28,12 @@ def build_coords(distance: int, dimension=2) -> np.array:
             # To go from the vertex to the n-dim cell center, increase n of the coordinates by 1. dim choose n options
             for increment_directions in combinations(list(range(dimension)), cell_dim):
                 cell_coords = tuple([coord[i] + int(i in increment_directions) for i in range(dimension)])
-                cells[cell_dim].append(cell_coords)
+                if periodic_bc or (max(cell_coords) <= 2 * (distance - 1)):
+                    cells[cell_dim].append(cell_coords)
     return cells
 
 
-def adjacent_cells(dim_shift, cell_coords, dimension, distance):
+def adjacent_cells(dim_shift, cell_coords, dimension, distance, periodic_bc=True):
     # Get the adjacent d+1 or d-1 cells for a d-dim cell at cell_coords
     neighbours = []
     embedded_in = [i for i in range(dimension) if cell_coords[i] % 2]
@@ -45,13 +46,14 @@ def adjacent_cells(dim_shift, cell_coords, dimension, distance):
         raise ValueError
     for dim in move_in:
         for direction in (+1, -1):
-            coord = cell_coords[:dim] + tuple([direction + cell_coords[dim]]) + cell_coords[dim+1:]
-            neighbours.append(torus(tuple(coord), distance=distance))
+            if periodic_bc or (0 <= direction + cell_coords[dim] <= 2 * (distance - 1)):
+                coord = cell_coords[:dim] + tuple([direction + cell_coords[dim]]) + cell_coords[dim+1:]
+                neighbours.append(torus(tuple(coord), distance=distance))
     return neighbours
 
 
-def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False):
-    cells = build_coords(distance, dimension=dimension)
+def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False, periodic_bcs=True):
+    cells = build_coords(distance, dimension=dimension, periodic_bc=periodic_bcs)
 
     # Index all cells
     cells2i = [{q: i for i, q in enumerate(sorted(cells[d]))} for d in range(dimension + 1)]
@@ -68,7 +70,7 @@ def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False):
                 boundary_shape = (len(cells[d-1]), len(cells[d]))
                 b_mat = np.zeros(boundary_shape, dtype='int')
             for c in cells[d]:
-                boundary = adjacent_cells(dim_shift=-1, cell_coords=c, dimension=dimension, distance=distance)
+                boundary = adjacent_cells(dim_shift=-1, cell_coords=c, dimension=dimension, distance=distance, periodic_bc=periodic_bcs)
                 this_dim_cell_ix = cells2i[d][c]
                 lower_dim_cell_ixs = [cells2i[d - 1][b] for b in boundary]
                 b_maps[d][this_dim_cell_ix] = lower_dim_cell_ixs
@@ -81,7 +83,7 @@ def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False):
                 boundary_shape = (len(cells[d + 1]), len(cells[d]))
                 cob_mat = np.zeros(boundary_shape, dtype='int')
             for c in cells[d]:
-                co_boundary = adjacent_cells(dim_shift=+1, cell_coords=c, dimension=dimension, distance=distance)
+                co_boundary = adjacent_cells(dim_shift=+1, cell_coords=c, dimension=dimension, distance=distance, periodic_bc=periodic_bcs)
                 this_dim_cell_ix = cells2i[d][c]
                 higher_dim_cell_ixs = [cells2i[d + 1][b] for b in co_boundary]
                 co_b_maps[d][this_dim_cell_ix] = higher_dim_cell_ixs
@@ -213,27 +215,27 @@ def toric_parity_check_matrix(distance, dimension=2):
     return H_primal, H_dual, x_logical_bin, z_logical_bin
 
 
-def sample_errors(hp, hd, x, z, noise=0.01, repetitions=1000):
-    def get_error_mat(h, correlation_surface, e, reps):
-        matching = Matching(h, e)
-        nstab, nq = h.shape
-        # Generate syndromes
-        q_errors = np.random.choice([0, 1], size=(nq, reps), p=[1 - e, e])
-        syndromes = (h @ q_errors) % 2
-        predictions = matching.decode_batch(syndromes.T)
-
-        # Add predictions to physical errors
-        error_mat = (q_errors + predictions.T) % 2
-        # Decide whether a logical error happened
-        # If the support of a logical operator and the error intersect only once, there has been a logical error
-        error = (error_mat.T @ correlation_surface) % 2
-        return error
-    primal_error_mat = get_error_mat(hp, x, noise, repetitions)
-    dual_error_mat = get_error_mat(hd, z, noise, repetitions)
-
-    overall_error = np.logical_or(primal_error_mat, dual_error_mat)
-    error_rate = sum(overall_error)/repetitions
-    return error_rate
+# def sample_errors(hp, hd, x, z, noise=0.01, repetitions=1000):
+#     def get_error_mat(h, correlation_surface, e, reps):
+#         matching = Matching(h, e)
+#         nstab, nq = h.shape
+#         # Generate syndromes
+#         q_errors = np.random.choice([0, 1], size=(nq, reps), p=[1 - e, e])
+#         syndromes = (h @ q_errors) % 2
+#         predictions = matching.decode_batch(syndromes.T)
+#
+#         # Add predictions to physical errors
+#         error_mat = (q_errors + predictions.T) % 2
+#         # Decide whether a logical error happened
+#         # If the support of a logical operator and the error intersect only once, there has been a logical error
+#         error = (error_mat.T @ correlation_surface) % 2
+#         return error
+#     primal_error_mat = get_error_mat(hp, x, noise, repetitions)
+#     dual_error_mat = get_error_mat(hd, z, noise, repetitions)
+#
+#     overall_error = np.logical_or(primal_error_mat, dual_error_mat)
+#     error_rate = sum(overall_error)/repetitions
+#     return error_rate
 
 
 def sweep_error_prob(distance, dimension=3):

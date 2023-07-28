@@ -104,7 +104,6 @@ def loss_decoding_gausselim_fast_noordering_trackqbts(m, qbt_syndr_mat, lost_qbt
     if lost_qbts.dtype != int:
         raise ValueError(f"The c++ function works only lost qubits with data type int, not {lost_qbts.dtype}")
     nr, nc = m.shape
-
     nlq = len(lost_qbts)
     lost_q = lost_qbts.copy()
 

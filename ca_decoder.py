@@ -173,7 +173,7 @@ def ftr_sparse(nemap, st):
     return a + b
 
 
-def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_ca_iters=10, change_dir_every=10, n_shots=1, parallelise=True, eras_convert=False, eras_conv_iters=0):
+def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_ca_iters=10, change_dir_every=10, n_shots=1, parallelise=True, eras_convert=False, eras_conv_iters=0, n_cores=None):
     """
     Run Tooms rule in the presence of losses on the lattice described by lattice_info
     Options to do erasure conversion and direction changes
@@ -193,7 +193,14 @@ def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_c
     errors, losses = gen_errors(nq, n_shots, error_rate, loss_rate)
     lost_qubit_ixs = [np.where(losses[:, ix])[0].astype(int) for ix in range(n_shots)]
 
-    n_cpu = multiprocessing.cpu_count() - 1
+    if n_cores is None:
+        n_cpu = multiprocessing.cpu_count() - 1
+    else:
+        n_cpu = n_cores
+        if n_cores > multiprocessing.cpu_count() - 1:
+            n_cpu = multiprocessing.cpu_count() - 1
+            print(f'{n_cores} requested, {n_cpu} available, running on {n_cpu}')
+
     # n_cpu = 1
     # batch the n_shots to run on different cores - this is the error and loss matrices
     errors_batched = col_batch(errors, n_cpu)
@@ -212,7 +219,7 @@ def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_c
         pool = multiprocessing.Pool(n_cpu)
         out = pool.starmap(run_tooms_and_ge_on_batch, zip(q_errs_sparse, q_loss_sparse, repeat(h_sparse), repeat(ne_parity_mats_sparse), repeat(n_ca_iters),
                                                           repeat(change_dir_every), lq_ix_batched, repeat(correlation_surface), repeat(qbt_syndr_mat),
-                                                          repeat(lossy), repeat(errory), repeat(eras_convert)))
+                                                          repeat(lossy), repeat(errory), repeat(eras_convert), repeat(eras_conv_iters)))
         tot_errors = sum([x[0] for x in out])
         tot_losses = sum([x[1] for x in out])
     else:
@@ -221,7 +228,7 @@ def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_c
             loss_sparse = q_loss_sparse[i]
             n_errors, n_losses = run_tooms_and_ge_on_batch(error_sparse, loss_sparse, h_sparse, ne_parity_mats_sparse, n_ca_iters,
                                                            change_dir_every, lq_ix_batched[i], correlation_surface, qbt_syndr_mat,
-                                                           lossy=loss_rate > 1e-10, errory=error_rate > 1e-10, eras_convert=eras_convert)
+                                                           lossy=loss_rate > 1e-10, errory=error_rate > 1e-10, eras_convert=eras_convert, n_eras_iters=eras_conv_iters)
             tot_errors += n_errors
             tot_losses += n_losses
     print(f'total time taken: {time() - t0}')
@@ -229,7 +236,7 @@ def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_c
 
 
 def run_tooms_and_ge_on_batch(error_mat, loss_mat, h, ne_map, n_ca_iters, chng_freq, lost_q_ixs, log_op, qub_synd_mat,
-                              lossy=True, errory=True, eras_convert=False):
+                              lossy=True, errory=True, eras_convert=False, n_eras_iters=0):
     """
     Run Tooms rule and gaussian elimination on the error batch in error_mat
     Options for erasure conversion and direction changes of the neighbours to compare against
@@ -250,7 +257,7 @@ def run_tooms_and_ge_on_batch(error_mat, loss_mat, h, ne_map, n_ca_iters, chng_f
     num_in_batch = error_mat.shape[1]
 
     if eras_convert:
-        current_error, loss_mat = sparse_tooms_iters_eras_conv(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat, num_eras_iters=100)
+        current_error, loss_mat = sparse_tooms_iters_eras_conv(n_ca_iters, chng_freq, ne_map, error_mat, h, loss_mat, num_eras_iters=n_eras_iters)
         losses = loss_mat.toarray()
         shots_in_batch = losses.shape[1]
         lost_q_ixs = [np.where(losses[:, ix])[0].astype(int) for ix in range(shots_in_batch)]
@@ -767,7 +774,7 @@ def loss_threshold():
 
 def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, savefig=False, outdir=None, dim=5,
                        n_ca_iters=100, showfig=False, printing=False, test=False, eras_convert=False, eras_conv_iters=0,
-                       fname_appendix='', qubit_cell_dim=2):
+                       fname_appendix='', qubit_cell_dim=2, change_dir_every=20, n_cores=None):
     """
 
     :param Ls:
@@ -798,7 +805,7 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             path = os.getcwd() + f'/outputs/{outdir}'
             if not os.path.exists(path):
                 os.makedirs(path)
-            fnames = f'dim5_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots{fname_appendix}'
+            fnames = f'dim{dim}_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots{fname_appendix}'
         out_dict = {}
         for L in Ls:
 
@@ -834,12 +841,13 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
                     print(f'error rate: {e}')
                 if test:
                     log_loss_rate, log_error_rate = tooms_with_loss(dimension=dim, distance=L, error_rate=e, qubit_cell_dim=2,
-                                                                    loss_rate=l, n_ca_iters=n_ca_iters, change_dir_every=20,
+                                                                    loss_rate=l, n_ca_iters=n_ca_iters, change_dir_every=change_dir_every,
                                                                     plot_fig=False, dense=False, n_shots=n_shots, printing=printing,
                                                                     parallelise=L>3, new_gauss_elim=True)
                 else:
                     log_loss_rate, log_error_rate = tooms_with_loss_parallelized(lattice_info, error_rate=e, loss_rate=l, n_ca_iters=n_ca_iters,
-                                                                                 change_dir_every=20, n_shots=n_shots, parallelise=True, eras_convert=eras_convert, eras_conv_iters=eras_conv_iters)
+                                                                                 change_dir_every=change_dir_every, n_shots=n_shots, parallelise=True, eras_convert=eras_convert, eras_conv_iters=eras_conv_iters,
+                                                                                 n_cores=n_cores)
                     if printing:
                         print(f'{log_loss_rate=}', f'{log_error_rate=}')
                 out.append((log_error_rate, log_loss_rate))

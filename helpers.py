@@ -1,7 +1,7 @@
 import pickle
 import numpy as np
 import os
-import imageio
+# import imageio
 
 
 def save_obj(obj, name, path):
@@ -45,18 +45,18 @@ def col_batch(input_arr, n_batches):
     return [input_arr[:, j] for j in ix_lists]
 
 
-def gif_from_savefigs(fname, dirname):
-    path = os.getcwd() + f'/outputs/{dirname}'
-    frames = []
-    n_imgs = 0
-    for file in os.listdir(path):
-        if file.endswith(".png"):
-            n_imgs += 1
-
-    for step_ix in range(n_imgs):
-        image = imageio.v2.imread(os.path.join(path, f'{step_ix}.png'))
-        frames.append(image)
-
-    imageio.mimsave(os.path.join(path, f'./{fname}.gif'),
-                    frames,
-                    fps=4)
+# def gif_from_savefigs(fname, dirname):
+#     path = os.getcwd() + f'/outputs/{dirname}'
+#     frames = []
+#     n_imgs = 0
+#     for file in os.listdir(path):
+#         if file.endswith(".png"):
+#             n_imgs += 1
+#
+#     for step_ix in range(n_imgs):
+#         image = imageio.v2.imread(os.path.join(path, f'{step_ix}.png'))
+#         frames.append(image)
+#
+#     imageio.mimsave(os.path.join(path, f'./{fname}.gif'),
+#                     frames,
+#                     fps=4)
