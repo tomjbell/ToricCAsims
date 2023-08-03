@@ -11,19 +11,26 @@ if __name__ == '__main__':
     parser.add_argument("-es", "--error_rates", nargs="*", help="list of error rates", type=float, default=[0.],)
     parser.add_argument("-ls", "--loss_rates", nargs="*", help="list of loss rates", type=float, default=[0.],)
     parser.add_argument("-o", "--output_dir", help="description of variable", type=str, default="",)
-    parser.add_argument("-sf", "--savefig", action=argparse.BooleanOptionalAction,)
-    parser.add_argument("-sd", "--savedata", action=argparse.BooleanOptionalAction,)
     parser.add_argument("-ns", "--n_shots", help="description of variable", type=int, default=100,)
-    parser.add_argument("-fa", "--from_array", action=argparse.BooleanOptionalAction,)
     parser.add_argument("-ar", "--arix", help="description of variable", type=int, default=0,)
     parser.add_argument("-dim", "--dimension", help="description of variable", type=int, default=5,)
     parser.add_argument("-nca", "--num_ca_iters", help="description of variable", type=int, default=100,)
     parser.add_argument("-ncaconv", "--num_ca_iters_erasure_conversion", help="description of variable", type=int, default=100,)
-    parser.add_argument("-chngf", "--change_dir_freq", help="description of variable", type=int, default=100,)
+    parser.add_argument("-chngf", "--change_dir_freq", help="description of variable", type=int, default=20,)
     parser.add_argument("-qbtdim", "--qubit_cell_dim", help="description of variable", type=int, default=2,)
-    parser.add_argument("-show", "--show_fig", action=argparse.BooleanOptionalAction,)
-    parser.add_argument("-erasconv", "--erasure_conversion", action=argparse.BooleanOptionalAction,)
 
+    try:
+        parser.add_argument("-erasconv", "--erasure_conversion", action=argparse.BooleanOptionalAction,)
+        parser.add_argument("-show", "--show_fig", action=argparse.BooleanOptionalAction,)
+        parser.add_argument("-sf", "--savefig", action=argparse.BooleanOptionalAction, )
+        parser.add_argument("-sd", "--savedata", action=argparse.BooleanOptionalAction, )
+        parser.add_argument("-fa", "--from_array", action=argparse.BooleanOptionalAction,)
+    except AttributeError:
+        parser.add_argument("-erasconv", "--erasure_conversion", action='store_true',)
+        parser.add_argument("-show", "--show_fig", action='store_true',)
+        parser.add_argument("-sf", "--savefig", action='store_true',)
+        parser.add_argument("-sd", "--savedata", action='store_true',)
+        parser.add_argument("-fa", "--from_array", action='store_true',)
 
     arguments = parser.parse_args(sys.argv[1:])
     Ls = arguments.distances
