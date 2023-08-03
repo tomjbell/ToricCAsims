@@ -231,7 +231,7 @@ def tooms_with_loss_parallelized(lattice_info, loss_rate=0.1, error_rate=0., n_c
                                                            lossy=loss_rate > 1e-10, errory=error_rate > 1e-10, eras_convert=eras_convert, n_eras_iters=eras_conv_iters)
             tot_errors += n_errors
             tot_losses += n_losses
-    print(f'total time taken: {time() - t0}')
+    print(f'time taken for {error_rate=}, {loss_rate=} is: {time() - t0}s')
     return tot_losses/n_shots, tot_errors/n_shots
 
 
@@ -477,7 +477,8 @@ def sparse_tooms_iters(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_spar
     return current_error
 
 
-def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_sparse, loss_sparse, num_eras_iters):
+def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_sparse, h_sparse, loss_sparse, num_eras_iters,
+                                 printing=False):
     """
     perform Tooms iterations using sparse matrices.
     This approach is likely to slow, particularly when doing erasure conversion near threshold, as losses are not sparse
@@ -522,7 +523,8 @@ def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_spar
             ne_map = ne_mats[ne_dir_ix]
             num_skips += 1
             if num_skips == 4:
-                print(f'4 skips, exiting pauli tooms after {_} iters')
+                if printing:
+                    print(f'4 skips, exiting pauli tooms after {_} iters')
                 break
         else:
             num_skips = 0
@@ -544,7 +546,8 @@ def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_spar
         # print(f'error qubits remaining: {np.sum(current_error)}')
         if num_erased == 0:
             if num_skips == 4:
-                print(f'4 skips, exiting erasure conversion after {_} iters')
+                if printing:
+                    print(f'4 skips, exiting erasure conversion after {_} iters')
                 break
             num_skips += 1
             ne_dir_ix += 1
@@ -555,7 +558,7 @@ def sparse_tooms_iters_eras_conv(num_iters, change_dir_freq, ne_mats, q_err_spar
     return current_error, loss_sparse
 
 
-def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rate, error_mat, batch_size=1):
+def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rate, error_mat, batch_size=1, get_ixs=False, get_logop=False):
     """
     Determine how many logical losses and errors there are by performing gaussian elimination and finding the parity
     of the intersection between the logical operator and the resultant error
@@ -569,8 +572,11 @@ def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rat
     """
     log_loss = 0
     log_error = 0
+    if get_logop:
+        logops = np.zeros(error_mat.shape)
+    logloss_ixs, logerror_ixs = [], []
     for ix in range(batch_size):
-        lq = np.array(lost_qubits[ix], dtype=int)
+        lq = np.array(lost_qubits[ix], dtype=np.uint32)
         n_lost_q = len(lost_qubits)
         if n_lost_q:
             Hwithlogop_ordered_rowechelon, qbt_syndr_mat_dec = loss_decoding_gausselim_fast_noordering_trackqbts(
@@ -580,12 +586,24 @@ def loss_decode_check_error(lost_qubits, h_with_log_op, qbt_syndr_mat, error_rat
         new_logop = Hwithlogop_ordered_rowechelon[-1]
         if np.any(new_logop[lq]):
             log_loss += 1
+            if get_ixs:
+                logloss_ixs.append(ix)
         elif error_rate > 1e-10:
             error_vec = error_mat[:, ix]
             # determine if there has been a logical error
             if not isinstance(error_vec, np.ndarray):
                 print(type(error_vec))
-            log_error += np.dot(new_logop, error_vec) % 2
+            islogerr = np.dot(new_logop, error_vec) % 2
+            if islogerr:
+                log_error += 1
+                if get_ixs:
+                    logerror_ixs.append(ix)
+        if get_logop:
+            logops[:, ix] = new_logop
+    if get_ixs:
+        if get_logop:
+            return log_error, log_loss, logerror_ixs, logloss_ixs, logops
+        return log_error, log_loss, logerror_ixs, logloss_ixs
     return log_error, log_loss
 
 
@@ -720,7 +738,7 @@ def main():
 def dim3_loss_tests():
     losses = np.linspace(0.1, 0.3, 11)
     # losses = [0.2]
-    dists = (3,4, 5, 6, 7)
+    dists = (3, 4, 5, 6, 7)
     # dists = [11]
 
     for d in dists:
@@ -805,7 +823,7 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
             path = os.getcwd() + f'/outputs/{outdir}'
             if not os.path.exists(path):
                 os.makedirs(path)
-            fnames = f'dim{dim}_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots{fname_appendix}'
+            fnames = f'dim{dim}_toric_error_sweep_loss{l}_maxL_{Ls[-1]}_{n_shots}shots{fname_appendix}_paulicaiters{n_ca_iters}_erasconviters{eras_conv_iters}'
         out_dict = {}
         for L in Ls:
 
@@ -867,7 +885,7 @@ def lossy_tooms_sweeps(Ls, error_rates, n_shots=100, loss=0., save_data=False, s
                 new_filepath = path + '/' + fnames + '.png'
                 append = 1
                 while os.path.isfile(new_filepath):
-                    new_filepath = path + '/' + fnames + str(append) + '.png'
+                    new_filepath = path + '/' + fnames + '_' + str(append) + '.png'
                     append += 1
                 plt.savefig(new_filepath)
                 plt.close()
