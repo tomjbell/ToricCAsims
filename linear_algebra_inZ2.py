@@ -23,7 +23,7 @@ if os_system == 'Windows':
     print('Loaded C++ linear algebra functions for Windows OS')
 elif os_system == 'Linux':
     try:
-        LTcpp_header = ctypes.cdll.LoadLibrary('./libGaussElim.so')
+        LTcpp_header = ctypes.cdll.LoadLibrary('./libLossDec.so')
     except:
         LTcpp_header = ctypes.cdll.LoadLibrary(os.path.join(cwd, 'FusionLatticesAnalysis', 'libLossDec.so'))
     print('Loaded C++ linear algebra functions for Linux OS')
@@ -101,8 +101,8 @@ def loss_decoding_gausselim_fast_noordering_trackstabs(m, lost_qbts, n_stabs):
 def loss_decoding_gausselim_fast_noordering_trackqbts(m, qbt_syndr_mat, lost_qbts):
     if m.dtype != np.uint8:
         raise ValueError("The c++ function works only for binary matrices with numpy.uint8 datatype entries.")
-    if lost_qbts.dtype != int:
-        raise ValueError(f"The c++ function works only lost qubits with data type int, not {lost_qbts.dtype}")
+    if lost_qbts.dtype != np.uint32:
+        raise ValueError(f"The c++ function works only lost qubits with data type np.uint32, not {lost_qbts.dtype}")
     nr, nc = m.shape
     nlq = len(lost_qbts)
     lost_q = lost_qbts.copy()
