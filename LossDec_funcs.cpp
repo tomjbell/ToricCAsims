@@ -1,10 +1,10 @@
-# include "LossDec_funcs_lintest.h"
+#include "LossDec_funcs_lintest.h"
 
-# include <iostream>
-# include <stdlib.h>
-# include <math.h>
-# include <random>
-# include <functional>
+#include <iostream>
+#include <stdlib.h>
+#include <math.h>
+#include <random>
+#include <functional>
 
 
 void SwitchRows(data_type* mat, int row0, int row1, int n_rows, int n_cols) {
@@ -317,12 +317,22 @@ void LossDecoder_GaussElimin_print(data_type* mat, int n_rows, int n_cols, int n
 
 void LossDecoder_GaussElimin_noordered_trackqbts(data_type* mat, int* qbt_syndr_mat, int* lost_qubits_ixs, int n_rows, int n_cols, int num_lost_qbts) {
 	int ix_r, lead, col_ix, i;
+	int* qbt;
 	data_type* m;
 
 	// std::cout << "\nStarting row LossDecoder_GaussElimin_trackqbts" << std::endl;
 
 
 	lead = 0;
+	//while (*(lost_qubits_ixs + lead) < 50)
+	//{
+	//	std::cout << "lead " << lead << std::endl;
+	//	std::cout << "qubit ix " << *(lost_qubits_ixs + lead) << std::endl;
+	//	lead++;
+	//	lead++;
+	//}
+	//return;
+
 	//////////////////////////////////
 	// PrintMatrix_int_toTerminal(qbt_syndr_mat, n_cols, 2);
 	//////////////////////////////////
@@ -332,8 +342,8 @@ void LossDecoder_GaussElimin_noordered_trackqbts(data_type* mat, int* qbt_syndr_
 		if (lead >= num_lost_qbts) {
 			return;
 		}
-
 		col_ix = *(lost_qubits_ixs + lead);
+	
 		//(a00, a01, 0)
 		m = mat + col_ix + n_cols * ix_r;
 
@@ -347,8 +357,6 @@ void LossDecoder_GaussElimin_noordered_trackqbts(data_type* mat, int* qbt_syndr_
 				if (lead == num_lost_qbts) {
 					return;
 				}
-
-
 				col_ix = *(lost_qubits_ixs + lead);
 
 				m = mat + col_ix + n_cols * ix_r;
@@ -361,100 +369,99 @@ void LossDecoder_GaussElimin_noordered_trackqbts(data_type* mat, int* qbt_syndr_
 
 
 		if (i != ix_r) {
-			// std::cout << "\nSwitching rows " << ix_r << " and "<< i << std::endl;
+			//std::cout << "\nSwitching rows " << ix_r << " and "<< i << std::endl;
 			SwitchRows_trackqbts(mat, qbt_syndr_mat, i, ix_r, n_rows, n_cols);
 		}
 
 		col_ix = *(lost_qubits_ixs + lead);
-
 		m = mat + col_ix + n_cols * (ix_r+1);
 		
 		for (i = ix_r + 1; i < n_rows; i++) {
 			if (*m != 0) {
+				//std::cout << "\nSubtracting rows " << ix_r << " and " << i << std::endl;
 				SubtractRows_trackqbts(mat, qbt_syndr_mat, ix_r, i, n_rows, n_cols);
 			}
 			m += n_cols;
 		}
 
 		lead++;
-
 	}
 	return;
 }
 
 
 
-void LossDecoder_GaussElimin_noordered_trackstabs(data_type* mat, int* stab_mat, int* lost_qubits_ixs, int n_rows, int n_cols, int num_lost_qbts) {
-	int ix_r, lead, col_ix, i;
-	data_type* m;
-
-	// std::cout << "\nStarting row LossDecoder_GaussElimin_trackqbts" << std::endl;
-
-
-	lead = 0;
-	//////////////////////////////////
-	// PrintMatrix_int_toTerminal(qbt_syndr_mat, n_cols, 2);
-	//////////////////////////////////
-
-	for (ix_r = 0; ix_r < (n_rows - 1); ix_r++) {
-
-		if (lead >= num_lost_qbts) {
-			return;
-		}
-
-		col_ix = *(lost_qubits_ixs + lead);
-		//(a00, a01, 0)
-		m = mat + col_ix + n_cols * ix_r;
-
-		i = ix_r;
-		while (*m == 0)
-		{
-			++i;
-			if (i == (n_rows - 1)) {
-				i = ix_r;
-				++lead;
-				if (lead == num_lost_qbts) {
-					return;
-				}
-
-
-				col_ix = *(lost_qubits_ixs + lead);
-
-				m = mat + col_ix + n_cols * ix_r;
-			}
-			else {
-				m += n_cols;
-			}
-
-		}
-
-
-		if (i != ix_r) {
-			// std::cout << "\nSwitching rows " << ix_r << " and "<< i << std::endl;
-			SwitchRows(mat, i, ix_r, n_rows, n_cols);
-			s1 = *(stab_mat + i);
-			s2 = *(stab_mat + ix_r);
-			temp = s2;
-			s2 = s1;
-			s1 = temp;
-		}
-
-		col_ix = *(lost_qubits_ixs + lead);
-
-		m = mat + col_ix + n_cols * (ix_r + 1);
-
-		for (i = ix_r + 1; i < n_rows; i++) {
-			if (*m != 0) {
-				SubtractRows(mat, ix_r, i, n_rows, n_cols);
-			}
-			m += n_cols;
-		}
-
-		lead++;
-
-	}
-	return;
-}
+//void LossDecoder_GaussElimin_noordered_trackstabs(data_type* mat, int* stab_mat, int* lost_qubits_ixs, int n_rows, int n_cols, int num_lost_qbts) {
+//	int ix_r, lead, col_ix, i;
+//	data_type* m;
+//
+//	// std::cout << "\nStarting row LossDecoder_GaussElimin_trackqbts" << std::endl;
+//
+//
+//	lead = 0;
+//	//////////////////////////////////
+//	// PrintMatrix_int_toTerminal(qbt_syndr_mat, n_cols, 2);
+//	//////////////////////////////////
+//
+//	for (ix_r = 0; ix_r < (n_rows - 1); ix_r++) {
+//
+//		if (lead >= num_lost_qbts) {
+//			return;
+//		}
+//
+//		col_ix = *(lost_qubits_ixs + lead);
+//		//(a00, a01, 0)
+//		m = mat + col_ix + n_cols * ix_r;
+//
+//		i = ix_r;
+//		while (*m == 0)
+//		{
+//			++i;
+//			if (i == (n_rows - 1)) {
+//				i = ix_r;
+//				++lead;
+//				if (lead == num_lost_qbts) {
+//					return;
+//				}
+//
+//
+//				col_ix = *(lost_qubits_ixs + lead);
+//
+//				m = mat + col_ix + n_cols * ix_r;
+//			}
+//			else {
+//				m += n_cols;
+//			}
+//
+//		}
+//
+//
+//		if (i != ix_r) {
+//			// std::cout << "\nSwitching rows " << ix_r << " and "<< i << std::endl;
+//			SwitchRows(mat, i, ix_r, n_rows, n_cols);
+//			s1 = *(stab_mat + i);
+//			s2 = *(stab_mat + ix_r);
+//			temp = s2;
+//			s2 = s1;
+//			s1 = temp;
+//		}
+//
+//		col_ix = *(lost_qubits_ixs + lead);
+//
+//		m = mat + col_ix + n_cols * (ix_r + 1);
+//
+//		for (i = ix_r + 1; i < n_rows; i++) {
+//			if (*m != 0) {
+//				SubtractRows(mat, ix_r, i, n_rows, n_cols);
+//			}
+//			m += n_cols;
+//		}
+//
+//		lead++;
+//
+//	}
+//	return;
+//}
 
 
 
