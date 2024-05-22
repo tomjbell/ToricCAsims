@@ -25,12 +25,15 @@ if __name__ == '__main__':
         parser.add_argument("-sf", "--savefig", action=argparse.BooleanOptionalAction, )
         parser.add_argument("-sd", "--savedata", action=argparse.BooleanOptionalAction, )
         parser.add_argument("-fa", "--from_array", action=argparse.BooleanOptionalAction,)
+        parser.add_argument("-gi", "--get_input", action=argparse.BooleanOptionalAction,)
     except AttributeError:
         parser.add_argument("-erasconv", "--erasure_conversion", action='store_true',)
         parser.add_argument("-show", "--show_fig", action='store_true',)
         parser.add_argument("-sf", "--savefig", action='store_true',)
         parser.add_argument("-sd", "--savedata", action='store_true',)
         parser.add_argument("-fa", "--from_array", action='store_true',)
+        parser.add_argument("-gi", "--get_input", action='store_true',)
+
 
     arguments = parser.parse_args(sys.argv[1:])
     Ls = arguments.distances
@@ -48,13 +51,15 @@ if __name__ == '__main__':
     qubit_cell_dim = arguments.qubit_cell_dim
     erasure_conversion = arguments.erasure_conversion
     dimension = arguments.dimension
+    save_error_mats = arguments.get_input
 
 
     if from_array:
         loss_values = np.linspace(0.001, 0.015, 13)
         loss_rates = loss_values[arix]
 
-    lossy_tooms_sweeps(Ls, dim=dimension, error_rates=error_rates, loss=loss_rates, n_shots=n_shots, savefig=savefig, outdir=output_dir,
+    lossy_tooms_sweeps(Ls, dim=dimension, error_rates=error_rates, loss_rates=loss_rates, n_shots=n_shots, savefig=savefig, outdir=output_dir,
                        save_data=savedata, n_ca_iters=num_ca_iters, eras_conv_iters=eras_conv_iters, showfig=False,
-                       change_dir_every=change_dir_every, qubit_cell_dim=qubit_cell_dim, eras_convert=erasure_conversion)
+                       change_dir_every=change_dir_every, qubit_cell_dim=qubit_cell_dim, eras_convert=erasure_conversion,
+                       save_error_mats=save_error_mats)
 

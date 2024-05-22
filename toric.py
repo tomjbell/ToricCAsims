@@ -68,7 +68,7 @@ def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False, period
         if d > 0:
             if get_matrices:
                 boundary_shape = (len(cells[d-1]), len(cells[d]))
-                b_mat = np.zeros(boundary_shape, dtype='int')
+                b_mat = np.zeros(boundary_shape, dtype=np.uint8)
             for c in cells[d]:
                 boundary = adjacent_cells(dim_shift=-1, cell_coords=c, dimension=dimension, distance=distance, periodic_bc=periodic_bcs)
                 this_dim_cell_ix = cells2i[d][c]
@@ -81,7 +81,7 @@ def cell_dicts_and_boundary_maps(distance, dimension, get_matrices=False, period
         if d < dimension:
             if get_matrices:
                 boundary_shape = (len(cells[d + 1]), len(cells[d]))
-                cob_mat = np.zeros(boundary_shape, dtype='int')
+                cob_mat = np.zeros(boundary_shape, dtype=np.uint8)
             for c in cells[d]:
                 co_boundary = adjacent_cells(dim_shift=+1, cell_coords=c, dimension=dimension, distance=distance, periodic_bc=periodic_bcs)
                 this_dim_cell_ix = cells2i[d][c]

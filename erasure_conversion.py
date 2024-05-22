@@ -4,8 +4,6 @@ import matplotlib.pyplot as plt
 from toric import cell_dicts_and_boundary_maps, logical_x_toric
 import os
 from ca_decoder import tooms_with_loss_parallelized, lossy_tooms_sweeps, sparse_tooms_iters_eras_conv
-from scipy.sparse import csr_matrix
-from linear_algebra_inZ2 import loss_decoding_gausselim_fast_noordering_trackqbts
 
 
 def local_loss_only_tests(distance=20, dimension=2, error_rate=0., loss_rate=0.1, max_ca_iters=20, custom_errors=False, custom_losses=False):
@@ -60,11 +58,6 @@ def local_loss_only_tests(distance=20, dimension=2, error_rate=0., loss_rate=0.1
             if n_skips == 4:
                 break
     print(sum(tot_error * lost_qubit_mat))
-
-
-
-
-
 
 def erasure_conversion_2d(distance=20, dimension=2, error_rate=0.1, loss_rate=0., n_ca_iters=15):
 
@@ -299,6 +292,37 @@ def get_neighbour_coords(i, j, l):
 
 
 if __name__ == '__main__':
+
+    lossy_tooms_sweeps(dim=3, Ls=[11], error_rates=[0.032, 0.037], loss_rates=[0.], n_shots=1000,
+                       savefig=False, showfig=True, save_data=False, n_ca_iters=100, n_cores=8, erasuretoerror=False, )
+    exit()
+    #
+    # from helpers import load_obj
+    # data = load_obj('dim3_toric_error_sweep_loss0_maxL_13_10000shots1', os.getcwd() + '/outputs/3d_sims_eras_convert')
+    # print(data)
+    #
+    # for L, dat in data.items():
+    #     plt.plot(dat[0], [y[1] for y in dat[1]])
+    # plt.yscale('log')
+    # plt.show()
+    #
+    # exit()
+
+
+    Ls = [9, 11, 13]
+    loss_rates = [0.01]
+    shots = 10000
+    error_rates = np.linspace(0.005, 0.05, 11)
+
+
+    lossy_tooms_sweeps(Ls=Ls, error_rates=error_rates, loss=loss_rates, n_shots=shots, save_data=True, savefig=True, outdir='3d_sims_eras_convert', dim=3,
+                       n_ca_iters=0, showfig=False, printing=False, test=False, eras_convert=False, eras_conv_iters=0,
+                       fname_appendix='', qubit_cell_dim=2, change_dir_every=10, n_cores=8)
+    exit()
+    ############################# Generate shots until errors occur, then go back and look at their form ##############
+
+
+
     # test_cubic_erasure_conversion()
     # exit()
     #

@@ -9,6 +9,7 @@ import multiprocessing
 from helpers import save_obj
 from helpers import batch_data, col_batch
 from ca_decoder import gen_errors
+from time import perf_counter
 
 
 def ge_on_hypercubic(distance=2, dimension=2, qubit_cell_dim=1, error_rate=0, loss_rate=0.2, n_shots=1):
@@ -297,8 +298,15 @@ def run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_
     :param lattice_info:
     :return:
     """
+
     if lattice_info is not None:
-        cells, cells2i, b_maps, cob_maps, future_faces_map, future_edges_map, local_boundary_face_map, h = lattice_info
+        cells, cells2i, b_maps, cob_maps, future_faces_map, future_edges_map, h, correlation_surface, local_boundary_face_map = lattice_info
+        future_edges_map = future_edges_map[0]
+        future_faces_map = future_faces_map[0]
+        h_sparse = csr_matrix(h)
+        nq = len(cells[qubit_cell_dim])
+        n_stab = len(cells[qubit_cell_dim - 1])
+
     else:
         cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
         local_boundary_face_map = None
@@ -309,16 +317,14 @@ def run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_
         for v in cells[0]:
             future_faces_map[cells2i[0][v]] = [cells2i[2][face] for face in future_cells_toric(+2, v, dimension, distance, future_dir)]
             future_edges_map[cells2i[0][v]] = [cells2i[1][edge] for edge in future_cells_toric(+1, v, dimension, distance, future_dir)]
-
-    nq = len(cells[qubit_cell_dim])
-    n_stab = len(cells[qubit_cell_dim - 1])
-    if lattice_info is None:
+        nq = len(cells[qubit_cell_dim])
+        n_stab = len(cells[qubit_cell_dim - 1])
         h = np.zeros(shape=(n_stab, nq), dtype=np.uint8)
         for stab, qubits in cob_maps[qubit_cell_dim - 1].items():
             h[stab, qubits] = 1
-    h_sparse = csr_matrix(h)
-    stabs_per_qubit = len(b_maps[qubit_cell_dim][0])
-    correlation_surface = logical_x_toric(cells, qubit_cell_dim, dimension, distance, cells2i[qubit_cell_dim])  # Gets binary vector corresponding to the logical operator
+        h_sparse = csr_matrix(h)
+        stabs_per_qubit = len(b_maps[qubit_cell_dim][0])
+        correlation_surface = logical_x_toric(cells, qubit_cell_dim, dimension, distance, cells2i[qubit_cell_dim])  # Gets binary vector corresponding to the logical operator
 
     if error_q:
         errors = np.zeros((nq, n_shots), dtype=int)
@@ -532,14 +538,14 @@ def local_edge_to_faces_hypercubic(dimension):
     return boundary2face_ix
 
 
-def init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, logop=False):
+def     init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, logop=False, get_local_map=False):
     cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
     nq = len(cells[qubit_cell_dim])
     n_stab = len(cells[qubit_cell_dim-1])
     h = np.zeros(shape=(n_stab, nq), dtype=np.uint8)
     for stab, qubits in cob_maps[qubit_cell_dim - 1].items():
         h[stab, qubits] = 1
-    local_boundary_face_map = local_edge_to_faces_hypercubic(distance)
+    local_boundary_face_map = local_edge_to_faces_hypercubic(dimension)
     if type(future_dirs[0]) is int:
         future_dir = [future_dirs]
     ff_maps = []
@@ -554,9 +560,13 @@ def init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, 
                                                future_cells_toric(+1, v, dimension, distance, fd)]
         ff_maps.append(future_faces_map)
         fe_maps.append(future_edges_map)
+
     if logop:
         corr_surf = logical_x_toric(cells, q_cell_dim=2, distance=distance, dimension=dimension, q2i_dict=cells2i[2])
-        return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, corr_surf, h
+        if get_local_map:
+            return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h, corr_surf, local_boundary_face_map
+
+        return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h, corr_surf
     return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h
 
 def main():
@@ -567,12 +577,17 @@ def main():
     future_dirs = [x for x in product((1, -1), repeat=3)]
     loss_rates = np.linspace(0.3, 0.7, 7)
     # for L in (3, 4, 5):
+
     for L in [3, 4, 5, 6, 7]:
+        t0 = perf_counter()
+        print(f"running {L=}")
         lattice_info = init_lattice_sweep_rule(dim, L, future_dirs=future_dirs, logop=True)
+        cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, corr_surf, h = lattice_info
         y = []
         for l in loss_rates:
-            out = erasure_only_sweep_rule(dim, L, future_dir=future_dirs, lattice_info=lattice_info, n_sweeps=20, loss_rate=l, n_shots=1000)
+            out = erasure_only_sweep_rule(lattice_info=lattice_info, n_sweeps=20, loss_rate=l, n_shots=1000)
             y.append(out)
+            print(f"cumulative time this size: {perf_counter() - t0}")
         plt.plot(loss_rates, y)
     plt.show()
 
@@ -607,6 +622,45 @@ def main():
 
 
 if __name__ == '__main__':
+    dimension = 5
+    distances = [3, 4, 5]
+    future_dir = [1] * dimension
+    qubit_cell_dim = 2
+    n_shots = 1000
+    loss_rate = 0.
+    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_22', 'sweep')
+    savedata = True
+    n_sweepses = [5, 10, 20, 50, 100]
+    for n_sweeps in n_sweepses:
+        for _ in range(10):
+            results = {k: [] for k in distances}
+            error_rates = np.linspace(0.014, 0.027, 7)
+
+            for distance in distances:
+                print(f"Running distance {distance}")
+                lattice_info = init_lattice_sweep_rule(dimension, distance, [future_dir], logop=True, get_local_map=True)
+
+                for e in error_rates:
+                    print(f"Doing error rate {e}")
+                    t0 = perf_counter()
+                    out = run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_shots=n_shots, error_rate=e, loss_rate=loss_rate,
+                                       n_sweeps=n_sweeps, printing=False, error_q=None, serial=False, lattice_info=lattice_info, use_local_map=True)
+                    results[distance].append(out)
+                    print(f"time this shot: {perf_counter() - t0}")
+                if savedata:
+                    fname = f"sweep_rule_L{distances[0]}-{distances[-1]}uptoL{distance}_dim{dimension}_{n_sweeps}sweeps_{n_shots}shots"
+                    appendix = 1
+                    while f"{fname}_{appendix}.pkl" in os.listdir(outdir):
+                        appendix += 1
+                    save_obj(results, f"{fname}_{appendix}", path=outdir)
+                print("\n")
+            for l in distances:
+                plt.plot(error_rates, results[l], label=l)
+            plt.legend()
+            plt.show()
+    print(out)
+    exit()
+
     main()
     exit()
 
