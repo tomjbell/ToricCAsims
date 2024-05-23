@@ -46,7 +46,7 @@ def col_batch(input_arr, n_batches):
 
 
 # def gif_from_savefigs(fname, dirname):
-#     path = os.getcwd() + f'/outputs/{dirname}'
+#     path = os.getcwd() + f'/outputs_local/{dirname}'
 #     frames = []
 #     n_imgs = 0
 #     for file in os.listdir(path):

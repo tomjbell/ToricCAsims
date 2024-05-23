@@ -60,5 +60,57 @@ def plot_helper(data_dir, Ls, num_iters, axis, inset_data=False):
             ax_ins.set_yticks([])
             ax_ins.legend()
 
+
+def sweep_5d_no_loss():
+    sns.set_theme()
+    plt.style.use('seaborn-v0_8')
+    distances = [3, 4, 5]
+    iter_list = [10, 20, 50, 100]
+    fig, axs = plt.subplots(2, 2, figsize=(10, 7), layout='tight')
+
+    for i, num_iters in enumerate(iter_list):
+        ax = axs[i//2, i % 2]
+        data_dir = '24_05_22/sweep'
+
+        plot_helper_sweep(data_dir, distances, num_iters, ax, inset_data=False)
+
+        ax.set_title(f"{num_iters} iterations")
+        ax.set_xlabel('Physical error rate')
+        ax.set_ylabel('Logical error rate')
+        ax.legend()
+    plt.savefig('outputs/Thesis_plots/sweep_5d_no_loss', dpi=500)
+    plt.show()
+
+def plot_helper_sweep(data_dir, Ls, num_iters, axis, inset_data=False):
+    path_to_file = os.path.join(os.getcwd(), 'outputs', data_dir)
+    filename = f"sweep_rule_L3-5uptoL5_dim5_{num_iters}sweeps_1000shots"
+    x_data = np.linspace(0.014, 0.027, 7)
+    y_data = None
+    n_files_opened = 0
+    for file in os.listdir(path_to_file):
+        if file.startswith(filename):
+            n_files_opened += 1
+            data = load_obj(path=path_to_file, name=file, suffix='')
+            if y_data is None:
+                y_data = {k: np.array(v) for k, v in data.items()}
+            else:
+                for k, v in data.items():
+                    y_data[k] += np.array(v)
+
+    if not n_files_opened:
+        print(filename, path_to_file)
+        print(os.listdir(path_to_file))
+    else:
+        for k, v in y_data.items():
+            axis.plot(x_data, v/n_files_opened, 'o-', label=f"L={k}")
+        if inset_data:
+            ax_ins = inset_axes(axis, width="45%", height="45%", loc=2)
+            data_dir = '24_05_22'
+            plot_helper(data_dir, Ls, num_iters, ax_ins, inset_data=False)
+            ax_ins.set_yticks([])
+            ax_ins.legend()
+
+
+
 if __name__ == '__main__':
-    tooms_5d_no_loss()
+    sweep_5d_no_loss()

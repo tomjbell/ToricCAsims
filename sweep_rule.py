@@ -630,7 +630,7 @@ if __name__ == '__main__':
     loss_rate = 0.
     outdir = os.path.join(os.getcwd(), 'outputs', '24_05_22', 'sweep')
     savedata = True
-    n_sweepses = [5, 10, 20, 50, 100]
+    n_sweepses = [10, 20, 50, 100]
     for n_sweeps in n_sweepses:
         for _ in range(10):
             results = {k: [] for k in distances}

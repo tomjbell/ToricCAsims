@@ -298,7 +298,7 @@ if __name__ == '__main__':
     exit()
     #
     # from helpers import load_obj
-    # data = load_obj('dim3_toric_error_sweep_loss0_maxL_13_10000shots1', os.getcwd() + '/outputs/3d_sims_eras_convert')
+    # data = load_obj('dim3_toric_error_sweep_loss0_maxL_13_10000shots1', os.getcwd() + '/outputs_local/3d_sims_eras_convert')
     # print(data)
     #
     # for L, dat in data.items():
