@@ -10,6 +10,7 @@ from helpers import save_obj
 from helpers import batch_data, col_batch
 from ca_decoder import gen_errors
 from time import perf_counter
+from math import ceil
 
 
 def ge_on_hypercubic(distance=2, dimension=2, qubit_cell_dim=1, error_rate=0, loss_rate=0.2, n_shots=1):
@@ -164,7 +165,8 @@ def future_cells_toric(dim_shift, cell_coords, dimension, distance, future_dir):
     return neighbours
 
 
-def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps=5, printing=False, error_q=None, erasure_q=None, lattice_info=None):
+def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps=5, printing=False, error_q=None,
+                            erasure_q=None, lattice_info=None, parallelize=False, local_map=None, final_full_swp=False):
     """
     Deal with erasures by reporting random outcomes for the erased qubits and then performing a sweep rule restricted
     to the lost regions. Need to change direction due to the presence of boundaries
@@ -179,7 +181,7 @@ def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps
     :return:
     """
     if lattice_info is not None:
-        cells, cells2i, b_maps, cob_maps, future_faces_maps, future_edges_maps, correlation_surface, h = lattice_info
+        cells, cells2i, b_maps, cob_maps, future_faces_maps, future_edges_maps, h, correlation_surface = lattice_info
         i2qubit_coord = {v: k for k, v in cells2i[qubit_cell_dim].items()}
 
     else:
@@ -187,14 +189,7 @@ def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps
     nq = len(cells[qubit_cell_dim])
     n_stab = len(cells[qubit_cell_dim-1])
     #initialise erasures and corresponding errors:
-    if error_q is None and erasure_q is None:
-        errors, erasures = gen_errors(nq, n_shots, 0, loss_rate)
-        errors = erasures * np.random.choice((0, 1), p=(0.5, 0.5), size=(nq, n_shots))
-    else:
-        errors, erasures = np.zeros((nq, 1)), np.zeros((nq, 1))
-        errors[error_q, 0] = 1
-        erasures[erasure_q, 0] = 1
-        n_shots = 1
+
 
     if h is None:
         h = np.zeros(shape=(n_stab, nq), dtype=np.uint8)
@@ -203,68 +198,95 @@ def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps
     h_sparse = csr_matrix(h)
 
     num_failures = 0
-    final_error = np.zeros((nq, n_shots))
-    for shot_ix in range(n_shots):
-        errors_this_shot = errors[:, shot_ix]
-        error_ixs = set(np.where(errors_this_shot)[0])
-        # print(error_ixs)
-        erasures_this_shot = erasures[:, shot_ix]
-        erasure_ixs = np.where(erasures_this_shot)[0]
-        syndrome = (h @ errors_this_shot) % 2
-        nt_edges = np.where(syndrome)[0]
-        # print(nt_edges)
-        nt_vertices = get_incident_vertices(nt_edges, b_maps[1])
-        # print(erasure_ixs)
-        for j in range(len(future_faces_maps)):
-            for sweep_ix in range(n_sweeps):
-                if printing:
-                    error_coords = [i2qubit_coord[ix] for ix in error_ixs]
-                    erasure_coords = [i2qubit_coord[ix] for ix in erasure_q]
-                    print(f'{error_coords=}')
-                    print(f'{erasure_coords=}')
-                    print(f'sweep direction index: {j}')
-                tot_flips_this_sweep = []
-                for v in nt_vertices:
-                    ff = future_faces_maps[j][v]
-                    fe = future_edges_maps[j][v]
-                    error_restricted = set(nt_edges).intersection(fe)
-                    if error_restricted:
-                        ff_in_erasure = list(set(ff).intersection(erasure_ixs))
-                        for face_set in powerset(ff_in_erasure):
-                            # get boundary
-                            tot_boundary = set()
-                            for f in face_set:
-                                boundary = b_maps[2][f]
-                                tot_boundary = tot_boundary.symmetric_difference(boundary)
-                            local_boundary = tot_boundary.intersection(fe)
+    if parallelize:
+        # initialize errors inside each process
+        n_cpu = multiprocessing.cpu_count() - 1
+        if n_shots % n_cpu:
+            shots_per_batch = ceil(n_shots / n_cpu)
+            last_batch_size = n_shots - (n_cpu - 1) * shots_per_batch
+            batch_sizes = [shots_per_batch for _ in range(n_cpu - 1)] + [last_batch_size]
+        else:
+            batch_sizes = [n_shots / n_cpu for _ in range(n_cpu)]
 
-                            if error_restricted == local_boundary:
-                                if printing:
-                                    print(f'{local_boundary=}')
-                                    print(face_set)
-                                    print(
-                                        f'identified face set = {face_set}, coords: {[i2qubit_coord[q] for q in face_set]}')
-                                    print('\n')
-                                tot_flips_this_sweep += face_set
-                                break
-                    # print(tot_flips_this_sweep)
-                flipped_syndromes = set()
-                for face in tot_flips_this_sweep:
-                    flipped_syndromes = flipped_syndromes.symmetric_difference(set(b_maps[2][face]))
-                nt_edges = list(set(nt_edges).symmetric_difference(flipped_syndromes))
+        pool = multiprocessing.Pool(n_cpu)
+        out = pool.starmap(sweep_eras_batched, zip(batch_sizes, repeat(loss_rate), repeat(h), repeat(future_faces_maps),
+                                                   repeat(future_edges_maps), repeat(nq), repeat(b_maps), repeat(n_sweeps),
+                                                   repeat(final_full_swp), repeat(local_map)))
+        final_error = np.hstack(out)
+    else:
+        if error_q is None and erasure_q is None:
+            errors, erasures = gen_errors(nq, n_shots, 0, loss_rate)
+            errors = erasures * np.random.choice((0, 1), p=(0.5, 0.5), size=(nq, n_shots))
+        else:
+            errors, erasures = np.zeros((nq, 1)), np.zeros((nq, 1))
+            errors[error_q, 0] = 1
+            erasures[erasure_q, 0] = 1
+            n_shots = 1
+        final_error = np.zeros((nq, n_shots))
+        for shot_ix in range(n_shots):
+            errors_this_shot = errors[:, shot_ix]
+            error_ixs = set(np.where(errors_this_shot)[0])
+            # print(error_ixs)
+            erasures_this_shot = erasures[:, shot_ix]
+            erasure_ixs = np.where(erasures_this_shot)[0]
+            syndrome = (h @ errors_this_shot) % 2
+            nt_edges = np.where(syndrome)[0]
+            # print(nt_edges)
+            nt_vertices = get_incident_vertices(nt_edges, b_maps[1])
+            # print(erasure_ixs)
+            for j in range(len(future_faces_maps)):
+                for sweep_ix in range(n_sweeps):
+                    if printing:
+                        error_coords = [i2qubit_coord[ix] for ix in error_ixs]
+                        erasure_coords = [i2qubit_coord[ix] for ix in erasure_q]
+                        print(f'{error_coords=}')
+                        print(f'{erasure_coords=}')
+                        print(f'sweep direction index: {j}')
+                    tot_flips_this_sweep = []
+                    for v in nt_vertices:
+                        ff = future_faces_maps[j][v]
+                        fe = future_edges_maps[j][v]
+                        error_restricted = set(nt_edges).intersection(fe)
+                        if error_restricted:
+                            ff_in_erasure = list(set(ff).intersection(erasure_ixs))
+                            for face_set in powerset(ff_in_erasure):
+                                # get boundary
+                                tot_boundary = set()
+                                for f in face_set:
+                                    boundary = b_maps[2][f]
+                                    tot_boundary = tot_boundary.symmetric_difference(boundary)
+                                local_boundary = tot_boundary.intersection(fe)
 
-                error_ixs = set(tot_flips_this_sweep).symmetric_difference(error_ixs)
-                if not tot_flips_this_sweep:
-                    # If no flips, skip
-                    break
-                # print(error_ixs)
-                # error = np.zeros((nq, 1))
-                # error[list(error_ixs), 0] = 1
-                # synd = (h @ error) % 2
-                # print(np.sum(synd))
-        num_errors_remaining = len(error_ixs)
-        assert len(error_ixs.difference(erasure_ixs)) == 0
-        final_error[list(error_ixs), shot_ix] = 1
+                                if error_restricted == local_boundary:
+                                    if printing:
+                                        print(f'{local_boundary=}')
+                                        print(face_set)
+                                        print(
+                                            f'identified face set = {face_set}, coords: {[i2qubit_coord[q] for q in face_set]}')
+                                        print('\n')
+                                    tot_flips_this_sweep += face_set
+                                    break
+                        # print(tot_flips_this_sweep)
+                    flipped_syndromes = set()
+                    for face in tot_flips_this_sweep:
+                        flipped_syndromes = flipped_syndromes.symmetric_difference(set(b_maps[2][face]))
+                    nt_edges = list(set(nt_edges).symmetric_difference(flipped_syndromes))
+
+                    error_ixs = set(tot_flips_this_sweep).symmetric_difference(error_ixs)
+                    if not tot_flips_this_sweep:
+                        # If no flips, skip
+                        break
+                    # print(error_ixs)
+                    # error = np.zeros((nq, 1))
+                    # error[list(error_ixs), 0] = 1
+                    # synd = (h @ error) % 2
+                    # print(np.sum(synd))
+            num_errors_remaining = len(error_ixs)
+            assert len(error_ixs.difference(erasure_ixs)) == 0
+            final_error[list(error_ixs), shot_ix] = 1
+
+    final_error_rate = np.sum(final_error) / (n_shots * nq)
+    print(f"{final_error_rate=}, initial error rate {loss_rate / 2}")
     intersection_with_logop = correlation_surface * final_error
     intersection_parity = np.sum(intersection_with_logop, axis=0)
     intersection_parity %= 2
@@ -278,6 +300,91 @@ def erasure_only_sweep_rule(qubit_cell_dim=2, n_shots=1, loss_rate=0.1, n_sweeps
 
     print(num_errors/n_shots)
     return num_errors/n_shots
+
+
+def sweep_eras_batched(batch_size, eras_rate, h, ff_maps, fe_maps, nq, boundary_maps, num_sweeps,
+                       final_full_sweeps=False, local_map=None):
+    """
+    This function samples erasures on a 3D lattice and performs sweep rule on the regions of lost qubits
+    :param batch_size:
+    :param eras_rate:
+    :param h:
+    :param ff_maps:
+    :param fe_maps:
+    :param nq:
+    :param boundary_maps:
+    :param num_sweeps:
+    :return:
+    """
+    # sample erasures
+    local_sampler = np.random.RandomState()
+    erasures = local_sampler.choice((0, 1), p=(1 - eras_rate, eras_rate), size=(nq, batch_size)).astype(np.uint8)
+    errors = erasures * local_sampler.choice((0, 1), p=(0.5, 0.5), size=(nq, batch_size))
+
+    batch_final_errs = np.zeros((nq, batch_size), dtype=np.uint8)
+    for shot_ix in range(batch_size):
+        errors_this_shot = errors[:, shot_ix]
+        erasures_this_shot = erasures[:, shot_ix]
+        errors_ix_after_sweeps = sweep_per_shot_erasure(errors_this_shot, erasures_this_shot, boundary_maps, ff_maps,
+                                                        fe_maps, h, num_sweeps)
+        batch_final_errs[list(errors_ix_after_sweeps), shot_ix] = 1
+
+    if final_full_sweeps:
+        syndrome = (h @ batch_final_errs) % 2
+        error_qubit_ixs = [np.where(batch_final_errs[:, ix])[0].astype(np.uint32) for ix in range(batch_size)]
+        non_triv_synd_ixs = [np.where(syndrome[:, ix])[0].astype(np.uint32) for ix in range(batch_size)]
+
+        out = sweep_rule_per_shot(n_sweeps=num_sweeps, non_triv_synd_ixs=non_triv_synd_ixs, boundary_maps=boundary_maps, ff_map=ff_maps[0],
+                                  fe_map=fe_maps[0], error_qubit_ixs=error_qubit_ixs, local_map=local_map, use_local_map=local_map is not None)
+        error_ixs_out = [list(x) for x in out]
+
+        error_out_mat = np.zeros(shape=(nq, batch_size), dtype=np.uint8)
+
+        for shot, q_er_ixs in enumerate(error_ixs_out):
+            error_out_mat[q_er_ixs, shot] = np.ones(len(q_er_ixs), dtype=np.uint8)
+        batch_final_errs = error_out_mat
+
+    return batch_final_errs
+
+def sweep_per_shot_erasure(error, erasure, bm, ff_maps, fe_maps, h_mat, number_sweeps):
+    erasure_ixs = np.where(erasure)[0]
+    error_ixs = np.where(error)[0]
+    syndrome = (h_mat @ error) % 2
+    nt_edges = np.where(syndrome)[0]
+    for i, j in enumerate(range(len(ff_maps))):
+        for sweep_ix in range(number_sweeps):
+            nt_vertices = get_incident_vertices(nt_edges, bm[1])
+            tot_flips_this_sweep = []
+            for v in nt_vertices:
+                ff = ff_maps[j][v]
+                fe = fe_maps[j][v]
+                error_restricted = set(nt_edges).intersection(fe)
+                if error_restricted:
+                    ff_in_erasure = list(set(ff).intersection(erasure_ixs))
+                    for face_set in powerset(ff_in_erasure):
+                        # get boundary
+                        tot_boundary = set()
+                        for f in face_set:
+                            boundary = bm[2][f]
+                            tot_boundary = tot_boundary.symmetric_difference(boundary)
+                        local_boundary = tot_boundary.intersection(fe)
+                        if error_restricted == local_boundary:
+                            tot_flips_this_sweep += face_set
+                            break
+                # print(tot_flips_this_sweep)
+            flipped_syndromes = set()
+            for face in tot_flips_this_sweep:
+                flipped_syndromes = flipped_syndromes.symmetric_difference(set(bm[2][face]))
+            nt_edges = list(set(nt_edges).symmetric_difference(flipped_syndromes))
+
+            error_ixs = set(tot_flips_this_sweep).symmetric_difference(error_ixs)
+            if not tot_flips_this_sweep:
+                # If no flips, skip
+                break
+    num_errors_remaining = len(error_ixs)
+    assert len(error_ixs.difference(erasure_ixs)) == 0
+    return error_ixs
+    # batch_final_errs[list(error_ixs), shot_ix] = 1
 
 
 def run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_shots=1, error_rate=0.01, loss_rate=0., n_sweeps=5,
@@ -338,6 +445,7 @@ def run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_
         losses = np.array(ls, dtype=int)
         lost_qubit_ixs = [np.where(losses[:, ix])[0].astype(int) for ix in range(n_shots)]
         error_qubit_ixs_all = [np.where(errors[:, ix])[0].astype(int) for ix in range(n_shots)]
+
     tot_logical_errors = 0
 
     error_synd_sparse = h_sparse @ e_sparse
@@ -367,9 +475,9 @@ def run_sweep_rule_decoder(dimension, distance, future_dir, qubit_cell_dim=2, n_
         error_ixs_out = [list(x) for y in out for x in y]
 
     def get_tot_errors(error_ixs, corr):
-        error_out_mat = np.zeros(shape=(nq, n_shots), dtype=int)
+        error_out_mat = np.zeros(shape=(nq, n_shots), dtype=np.uint8)
         for shot, q_er_ixs in enumerate(error_ixs):
-            error_out_mat[q_er_ixs, shot] = np.ones(len(q_er_ixs), dtype=int)
+            error_out_mat[q_er_ixs, shot] = np.ones(len(q_er_ixs), dtype=np.uint8)
         logical_errors = np.sum(corr * error_out_mat, axis=0) % 2
         return np.sum(logical_errors)
     tot_logical_errors = get_tot_errors(error_ixs_out, correlation_surface)
@@ -391,7 +499,11 @@ def do_sweeps(nt_synd_ix, err_ixs, n_swp, fem, ffm, bm, lm):
             not len(error_restricted) % 2):  # is there any error boundary in the vertex future?
                 fe_inds = sorted([fe.index(e) for e in list(error_restricted)])
                 # print([face_ix for face_ix in local_map[tuple(fe_inds)]])
-                tot_flips_this_sweep += [ff[face_ix] for face_ix in lm[tuple(fe_inds)]]
+                try:
+                    tot_flips_this_sweep += [ff[face_ix] for face_ix in lm[tuple(fe_inds)]]
+                except TypeError:
+                    print(f"{ff=}, {lm[tuple(fe_inds)]}")
+                    raise ValueError
         flipped_syndromes = set()
         for face in tot_flips_this_sweep:
             flipped_syndromes = flipped_syndromes.symmetric_difference(set(bm[2][face]))
@@ -538,7 +650,7 @@ def local_edge_to_faces_hypercubic(dimension):
     return boundary2face_ix
 
 
-def     init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, logop=False, get_local_map=False):
+def init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, logop=False, get_local_map=False):
     cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=distance, dimension=dimension)
     nq = len(cells[qubit_cell_dim])
     n_stab = len(cells[qubit_cell_dim-1])
@@ -569,26 +681,38 @@ def     init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim
         return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h, corr_surf
     return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h
 
-def main():
-    #TODO future_dir has been changed to a list of directions as opposed to a single one, make sure code is compatible
-    dim = 3
-    distance = 3
+def run_erasure_only_sweep(dim, Ls, n_sweeps=20, n_shots=1000, savedata=False, final_full_sweep=False):
     future_dirs = [(1, 1, 1), (-1, -1, -1)]
     future_dirs = [x for x in product((1, -1), repeat=3)]
-    loss_rates = np.linspace(0.3, 0.7, 7)
+    # future_dirs = [(1, 1, 1)]
+    loss_rates = np.linspace(0.3, 0.7, 11)
     # for L in (3, 4, 5):
-
-    for L in [3, 4, 5, 6, 7]:
+    outfile = f"sweep_erasure_dim{dim}_L{Ls[0]}-{Ls[-1]}_{n_sweeps}sweeps_{n_shots}shots_final_sweep{final_full_sweep}"
+    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_24', 'sweep_erasure_only')
+    data = (loss_rates, {})
+    for L in Ls:
+        this_fname = f"{outfile}_upto{L}"
         t0 = perf_counter()
         print(f"running {L=}")
         lattice_info = init_lattice_sweep_rule(dim, L, future_dirs=future_dirs, logop=True)
-        cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, corr_surf, h = lattice_info
+        local_boundary_face_map = local_edge_to_faces_hypercubic(dim)
         y = []
         for l in loss_rates:
-            out = erasure_only_sweep_rule(lattice_info=lattice_info, n_sweeps=20, loss_rate=l, n_shots=1000)
+            out = erasure_only_sweep_rule(lattice_info=lattice_info, n_sweeps=n_sweeps, loss_rate=l, n_shots=n_shots, parallelize=True,
+                                          local_map=local_boundary_face_map, final_full_swp=final_full_sweep)
             y.append(out)
             print(f"cumulative time this size: {perf_counter() - t0}")
-        plt.plot(loss_rates, y)
+        data[1][L] = y
+
+        if savedata:
+            appendix = 1
+            while f"{this_fname}_{appendix}.pkl" in os.listdir(outdir):
+                appendix += 1
+            save_obj(data, f"{this_fname}_{appendix}", outdir)
+
+    for k, v in data[1].items():
+        plt.plot(data[0], v, label=k)
+    plt.legend()
     plt.show()
 
 
@@ -622,6 +746,13 @@ def main():
 
 
 if __name__ == '__main__':
+
+    for _ in range(5):
+        run_erasure_only_sweep(dim=3, Ls = [3, 4, 5, 6, 7], savedata=True, n_sweeps=20)
+    exit()
+
+
+
     dimension = 5
     distances = [3, 4, 5]
     future_dir = [1] * dimension

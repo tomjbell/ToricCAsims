@@ -115,7 +115,59 @@ def gauss_elim_results(dim=3, n_shots=1000, num_points=9):
     plt.savefig('outputs/Thesis_plots/3d_gausselim', dpi=500)
     plt.show()
 
+
+def sweep_erasure_results(dim=3, n_shots=1000):
+    import re
+    plt.style.use('seaborn-v0_8')
+    Ls = [3, 4, 5, 6, 7]
+    n_sweeps = 20
+    fig, axs = plt.subplots(1, 1, figsize=(5, 5), layout='tight')
+
+
+    outfile = f"sweep_erasure_dim{dim}_L{Ls[0]}-{Ls[-1]}_{n_sweeps}sweeps_{n_shots}shots_final_sweepTrue"
+    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_24', 'sweep_erasure_only')
+
+    # data_dir = '24_05_22/gausselim'
+    # path_to_file = os.path.join(os.getcwd(), 'outputs', data_dir)
+    ax = axs
+
+    # filename = f"Gauss_elim_loss_thresh_qubitcell{i + 1}_dim{dim}_L{Ls[0]}-{Ls[-1]}_{n_shots}shots_{num_points}points"
+
+    x_data = None
+    y_data = None
+    n_files_opened = 0
+
+    for file in os.listdir(outdir):
+
+        if file.startswith(outfile):
+            n_files_opened += 1
+            data = load_obj(path=outdir, name=file, suffix='')
+            print(data)
+            if x_data is None:
+                x_data = data[0]
+                y_data = {k: np.array(v) for k, v in data[1].items()}
+                print(y_data)
+            else:
+                for k, v in data[1].items():
+                    y_data[k] += np.array(list(v))
+    if not n_files_opened:
+        print(outfile, outdir)
+        print(os.listdir(outdir))
+    else:
+        for k, v in y_data.items():
+            ax.plot(x_data, v / n_files_opened, 'o-', label=f"L={k}")
+
+        ax.legend()
+
+    ax.set_title(f"Erasure decoding sweep rule")
+    ax.set_xlabel('Physical loss rate')
+    ax.set_ylabel('Logical loss rate')
+    plt.savefig('outputs/Thesis_plots/sweep_erasure_decode_with_final_sweep', dpi=500)
+    plt.show()
+
 if __name__ == '__main__':
+    sweep_erasure_results()
+    exit()
     gauss_elim_results()
     exit()
     tooms_5d_no_loss()
