@@ -100,18 +100,21 @@ def rauss_lat_loss_tests():
     plt.show()
 
 
-def test_face_qubit_gausselim(outdir=None, num_points=9):
-    Ls = [3, 5, 7, 9, 11]
+def test_face_qubit_gausselim(qubit_cell_dim=2, dimension=3, outdir=None, num_points=9, savedata=False, losses=None, Ls=None):
+    if Ls is None:
+        Ls = [3, 4, 5]
     # L = 5
-    dim = 3
+    dim = dimension
     # loss_rates = np.linspace(0.01, 0.1, 4)
-    loss_rates = np.linspace(0.7, 0.8, num_points)
+    if losses is None:
+        loss_rates = np.linspace(0.12, 0.2, num_points)
+    else:
+        loss_rates = losses
     error_rate = 0.0
 
     out = {}
     for L in Ls:
         cells, cells2i, b_maps, cob_maps = cell_dicts_and_boundary_maps(distance=L, dimension=dim)
-        qubit_cell_dim = 2
 
         nq = len(cells[qubit_cell_dim])
         n_stab = len(cells[qubit_cell_dim - 1])
@@ -134,7 +137,7 @@ def test_face_qubit_gausselim(outdir=None, num_points=9):
             errors, losses = gen_errors(nq, n_shots, error_rate=error_rate, loss_rate=loss_rate)
             lost_qubit_ixs = [np.where(losses[:, ix])[0] for ix in range(n_shots)]
 
-            if L > 5:
+            if (L > 5 and dim == 3) or (L > 3 and dim > 3) or dim>4:
                 n_cpu = multiprocessing.cpu_count() - 1
                 errors_batched = col_batch(errors, n_cpu)
                 losses_batched = col_batch(losses, n_cpu)
@@ -151,7 +154,8 @@ def test_face_qubit_gausselim(outdir=None, num_points=9):
     appendix = 1
     while f"{fname}_{appendix}.pkl" in os.listdir(outdir):
         appendix += 1
-    save_obj((loss_rates, out), f"{fname}_{appendix}", outdir)
+    if savedata:
+        save_obj((loss_rates, out), f"{fname}_{appendix}", outdir)
 
     for L in Ls:
         plt.plot([k for k in out[L].keys()], [v for v in out[L].values()], 'o-')
@@ -165,9 +169,11 @@ def test_face_qubit_gausselim(outdir=None, num_points=9):
 
 
 if __name__ == '__main__':
-    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_22', 'gausselim')
+    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_23', 'gausselim')
+    losses = np.linspace(0.38, 0.42, 7)
+    Ls = [5]
     for _ in range(5):
-        test_face_qubit_gausselim(outdir=outdir)
+        test_face_qubit_gausselim(outdir=outdir, savedata=True, qubit_cell_dim=2, dimension=5, losses=losses, Ls=Ls)
     exit()
 
     old_style = False

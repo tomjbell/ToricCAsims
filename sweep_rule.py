@@ -351,36 +351,37 @@ def sweep_per_shot_erasure(error, erasure, bm, ff_maps, fe_maps, h_mat, number_s
     error_ixs = np.where(error)[0]
     syndrome = (h_mat @ error) % 2
     nt_edges = np.where(syndrome)[0]
-    for i, j in enumerate(range(len(ff_maps))):
-        for sweep_ix in range(number_sweeps):
-            nt_vertices = get_incident_vertices(nt_edges, bm[1])
-            tot_flips_this_sweep = []
-            for v in nt_vertices:
-                ff = ff_maps[j][v]
-                fe = fe_maps[j][v]
-                error_restricted = set(nt_edges).intersection(fe)
-                if error_restricted:
-                    ff_in_erasure = list(set(ff).intersection(erasure_ixs))
-                    for face_set in powerset(ff_in_erasure):
-                        # get boundary
-                        tot_boundary = set()
-                        for f in face_set:
-                            boundary = bm[2][f]
-                            tot_boundary = tot_boundary.symmetric_difference(boundary)
-                        local_boundary = tot_boundary.intersection(fe)
-                        if error_restricted == local_boundary:
-                            tot_flips_this_sweep += face_set
-                            break
-                # print(tot_flips_this_sweep)
-            flipped_syndromes = set()
-            for face in tot_flips_this_sweep:
-                flipped_syndromes = flipped_syndromes.symmetric_difference(set(bm[2][face]))
-            nt_edges = list(set(nt_edges).symmetric_difference(flipped_syndromes))
+    for _ in range(2):
+        for j in range(len(ff_maps)):
+            for sweep_ix in range(number_sweeps):
+                nt_vertices = get_incident_vertices(nt_edges, bm[1])
+                tot_flips_this_sweep = []
+                for v in nt_vertices:
+                    ff = ff_maps[j][v]
+                    fe = fe_maps[j][v]
+                    error_restricted = set(nt_edges).intersection(fe)
+                    if error_restricted:
+                        ff_in_erasure = list(set(ff).intersection(erasure_ixs))
+                        for face_set in powerset(ff_in_erasure):
+                            # get boundary
+                            tot_boundary = set()
+                            for f in face_set:
+                                boundary = bm[2][f]
+                                tot_boundary = tot_boundary.symmetric_difference(boundary)
+                            local_boundary = tot_boundary.intersection(fe)
+                            if error_restricted == local_boundary:
+                                tot_flips_this_sweep += face_set
+                                break
+                    # print(tot_flips_this_sweep)
+                flipped_syndromes = set()
+                for face in tot_flips_this_sweep:
+                    flipped_syndromes = flipped_syndromes.symmetric_difference(set(bm[2][face]))
+                nt_edges = list(set(nt_edges).symmetric_difference(flipped_syndromes))
 
-            error_ixs = set(tot_flips_this_sweep).symmetric_difference(error_ixs)
-            if not tot_flips_this_sweep:
-                # If no flips, skip
-                break
+                error_ixs = set(tot_flips_this_sweep).symmetric_difference(error_ixs)
+                if not tot_flips_this_sweep:
+                    # If no flips, skip
+                    break
     num_errors_remaining = len(error_ixs)
     assert len(error_ixs.difference(erasure_ixs)) == 0
     return error_ixs
@@ -681,14 +682,15 @@ def init_lattice_sweep_rule(dimension, distance, future_dirs, qubit_cell_dim=2, 
         return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h, corr_surf
     return cells, cells2i, b_maps, cob_maps, ff_maps, fe_maps, h
 
+
 def run_erasure_only_sweep(dim, Ls, n_sweeps=20, n_shots=1000, savedata=False, final_full_sweep=False):
     future_dirs = [(1, 1, 1), (-1, -1, -1)]
     future_dirs = [x for x in product((1, -1), repeat=3)]
     # future_dirs = [(1, 1, 1)]
-    loss_rates = np.linspace(0.3, 0.7, 11)
+    loss_rates = np.linspace(0.5, 0.8, 11)
     # for L in (3, 4, 5):
     outfile = f"sweep_erasure_dim{dim}_L{Ls[0]}-{Ls[-1]}_{n_sweeps}sweeps_{n_shots}shots_final_sweep{final_full_sweep}"
-    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_24', 'sweep_erasure_only')
+    outdir = os.path.join(os.getcwd(), 'outputs', '24_05_26', 'sweep_erasure_only')
     data = (loss_rates, {})
     for L in Ls:
         this_fname = f"{outfile}_upto{L}"
@@ -748,7 +750,7 @@ def run_erasure_only_sweep(dim, Ls, n_sweeps=20, n_shots=1000, savedata=False, f
 if __name__ == '__main__':
 
     for _ in range(5):
-        run_erasure_only_sweep(dim=3, Ls = [3, 4, 5, 6, 7], savedata=True, n_sweeps=20)
+        run_erasure_only_sweep(dim=3, Ls=[3, 4, 5, 6, 7], savedata=True, n_sweeps=20)
     exit()
 
 
